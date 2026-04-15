@@ -47,6 +47,7 @@ typedef enum {
 
 /* 数据类型 */
 typedef enum {
+    TYPE_UNKNOWN = -1,
     TYPE_INTEGER, TYPE_REAL, TYPE_BOOLEAN, TYPE_CHAR,
     TYPE_ARRAY
 } DataType;

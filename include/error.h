@@ -1,7 +1,7 @@
 /**
  * @file error.h
  * @brief 错误处理模块头文件
- * @author 组员1：词法分析器开发
+ * @author 全体成员
  * 
  * 本文件定义了编译器的错误处理接口，包括错误类型、
  * 错误记录和错误输出功能。
@@ -42,7 +42,7 @@ typedef struct {
     ErrorRecord *records;   /* 错误记录数组 */
     int count;              /* 当前错误数量 */
     int capacity;           /* 数组容量 */
-} ErrorList;
+}ErrorList;
 
 /**
  * @brief 全局错误列表（供所有模块使用）
@@ -106,5 +106,12 @@ const char* error_type_to_string(LexerErrorType type);
  */
 void lexer_error(const char *msg, int line);
 
-#endif /* ERROR_H */
+/**
+ * @brief 语法分析器错误报告函数（供Flex调用）
+ * @param msg 错误消息
+ * @param line 错误行号
+ */
 void syntax_error(int line, const char *msg);
+
+#endif /* ERROR_H */
+
