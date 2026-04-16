@@ -80,6 +80,15 @@ ASTNode *ast_new_var_ref(const char *name, ASTNode *index, int line) {
     return node;
 }
 
+/* 函数调用表达式 */
+ASTNode *ast_new_call_expr(const char *name, ASTNode *args, int line) {
+    ASTNode *node = ast_new_node(AST_CALL_EXPR, line);
+    strncpy(node->data.call_expr.name, name, 63);
+    node->data.call_expr.name[63] = '\0';
+    node->data.call_expr.args = args;
+    return node;
+}
+
 /* 向语句列表追加语句 */
 ASTNode *ast_append_stmt(ASTNode *list, ASTNode *stmt) {
     if (!list) return stmt;
@@ -242,6 +251,15 @@ void ast_print(ASTNode *node, int indent) {
                 printf("[");
                 ast_print(node->data.var_ref.index_expr, 0);
                 printf("]");
+            }
+            printf(" (line %d)\n", node->line);
+            break;
+        case AST_CALL_EXPR:
+            printf("CallExpr: %s", node->data.call_expr.name);
+            if (node->data.call_expr.args) {
+                printf("(");
+                ast_print(node->data.call_expr.args, 0);
+                printf(")");
             }
             printf(" (line %d)\n", node->line);
             break;

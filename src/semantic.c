@@ -133,6 +133,43 @@ static ExprType check_unary_expr(ASTNode* node) {
     return result;
 }
 
+
+/* 检查函数调用表达式 */
+static ExprType check_call_expr(ASTNode* node) {
+    SymEntry* sym = lookup_symbol(node->data.call_expr.name);
+    
+    if (!sym) {
+        report_error(node->line, "Undeclared function '%s'", node->data.call_expr.name);
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
+    if (sym->kind != SYM_FUNC) {
+        report_error(node->line, "'%s' is not a function", node->data.call_expr.name);
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
+    /* 检查参数数量和类型 (简化版本) */
+    ASTNode* args_list = node->data.call_expr.args;
+    ASTNode* arg = NULL;
+    
+    /* parse_expression_list返回AST_STMT_LIST节点 */
+    if (args_list && args_list->type == AST_STMT_LIST) {
+        arg = args_list->data.stmt_list.first;
+    } else {
+        arg = args_list;
+    }
+    
+    int arg_count = 0;
+    while (arg) {
+        arg_count++;
+        check_expr(arg);
+        arg = arg->next;
+    }
+    
+    /* 返回函数的返回类型 */
+    return (ExprType){sym->type, 0, 0};
+}
+
 /* 检查变量引用 */
 static ExprType check_var_ref(ASTNode* node) {
     SymEntry* sym = lookup_symbol(node->data.var_ref.name);
@@ -214,6 +251,8 @@ static ExprType check_expr(ASTNode* expr) {
             return check_unary_expr(expr);
         case AST_VAR_REF:
             return check_var_ref(expr);
+        case AST_CALL_EXPR:
+            return check_call_expr(expr);
         case AST_CONST_VAL:
             return check_const_val(expr);
         default:

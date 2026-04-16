@@ -29,7 +29,8 @@ typedef enum {
     AST_CONST_VAL,      /* 常量值 */
     AST_IDENTIFIER,     /* 标识符（用于声明列表）*/
     AST_PARAM_LIST,     /* 参数列表 */
-    AST_STMT_LIST       /* 语句列表 */
+    AST_STMT_LIST,      /* 语句列表 */
+    AST_CALL_EXPR       /* 函数调用表达式 */
 } ASTNodeType;
 
 /* 二元运算符 */
@@ -139,6 +140,12 @@ struct ASTNode {
             ASTNode *index_expr;
         } var_ref;
 
+        /* 函数调用表达式 */
+        struct {
+            char name[64];
+            ASTNode *args;  /* 参数列表 */
+        } call_expr;
+
         /* 常量值 */
         struct {
             TokenType token_type;
@@ -184,6 +191,7 @@ ASTNode *ast_new_const_bool(int val, int line);
 ASTNode *ast_new_binary_expr(BinaryOp op, ASTNode *left, ASTNode *right, int line);
 ASTNode *ast_new_unary_expr(UnaryOp op, ASTNode *operand, int line);
 ASTNode *ast_new_var_ref(const char *name, ASTNode *index, int line);
+ASTNode *ast_new_call_expr(const char *name, ASTNode *args, int line);
 
 /* AST 工具函数 */
 ASTNode *ast_append_stmt(ASTNode *list, ASTNode *stmt);

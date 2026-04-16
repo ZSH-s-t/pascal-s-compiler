@@ -140,7 +140,7 @@ static ASTNode *parse_const_declarations(void) {
         expect(TOKEN_EQ);
         decl->data.const_decl.value = parse_const_value();
         if (!head) head = decl;
-        else tail->next = decl;
+        else tail->data.const_decl.next_decl = decl;
         tail = decl;
         if (cur_token.type == TOKEN_SEMICOLON) advance();
         else break;
@@ -234,7 +234,7 @@ static ASTNode *parse_var_declarations(void) {
         }
 
         if (!head) head = decl;
-        else tail->next = decl;
+        else tail->data.var_decl.next_decl = decl;
         tail = decl;
         expect(TOKEN_SEMICOLON);
         /* cur_token 现在是分号后的 token，检查是否是下一个变量声明 */
@@ -562,8 +562,7 @@ static ASTNode *parse_factor(void) {
                 ASTNode *args = NULL;
                 if (peek() != TOKEN_RPAREN) args = parse_expression_list();
                 expect(TOKEN_RPAREN);
-                /* 暂简化：函数调用视为变量引用 */
-                return ast_new_var_ref(name, NULL, line);
+                return ast_new_call_expr(name, args, line);
             } else if (cur_token.type == TOKEN_LBRACKET) {
                 advance();
                 ASTNode *index = parse_expression();
