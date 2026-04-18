@@ -134,41 +134,6 @@ static ExprType check_unary_expr(ASTNode* node) {
 }
 
 
-/* 检查函数调用表达式 */
-static ExprType check_call_expr(ASTNode* node) {
-    SymEntry* sym = lookup_symbol(node->data.call_expr.name);
-    
-    if (!sym) {
-        report_error(node->line, "Undeclared function '%s'", node->data.call_expr.name);
-        return (ExprType){TYPE_UNKNOWN, 0, 0};
-    }
-    
-    if (sym->kind != SYM_FUNC) {
-        report_error(node->line, "'%s' is not a function", node->data.call_expr.name);
-        return (ExprType){TYPE_UNKNOWN, 0, 0};
-    }
-    
-    /* 检查参数数量和类型 (简化版本) */
-    ASTNode* args_list = node->data.call_expr.args;
-    ASTNode* arg = NULL;
-    
-    /* parse_expression_list返回AST_STMT_LIST节点 */
-    if (args_list && args_list->type == AST_STMT_LIST) {
-        arg = args_list->data.stmt_list.first;
-    } else {
-        arg = args_list;
-    }
-    
-    int arg_count = 0;
-    while (arg) {
-        arg_count++;
-        check_expr(arg);
-        arg = arg->next;
-    }
-    
-    /* 返回函数的返回类型 */
-    return (ExprType){sym->type, 0, 0};
-}
 
 /* 检查变量引用 */
 static ExprType check_var_ref(ASTNode* node) {
@@ -240,6 +205,48 @@ static ExprType check_const_val(ASTNode* node) {
     return result;
 }
 
+/* 检查函数调用表达式 */
+static ExprType check_call_expr(ASTNode* node) {
+    SymEntry* sym = lookup_symbol(node->data.call_expr.name);
+    
+    if (!sym) {
+        report_error(node->line, "Undeclared function '%s'", node->data.call_expr.name);
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
+    if (sym->kind != SYM_FUNC) {
+        report_error(node->line, "'%s' is not a function", node->data.call_expr.name);
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
+    /* 检查参数数量 */
+    ASTNode* args_list = node->data.call_expr.args;
+    int arg_count = 0;
+    ASTNode* arg = NULL;
+    
+    if (args_list) {
+        if (args_list->type == AST_STMT_LIST) {
+            arg = args_list->data.stmt_list.first;
+        } else {
+            arg = args_list;
+        }
+        
+        while (arg) {
+            arg_count++;
+            check_expr(arg);
+            arg = arg->next;
+        }
+    }
+    
+    if (arg_count != sym->u.func_info.param_count) {
+        report_error(node->line, "Function '%s' expects %d argument(s), but got %d",
+                    node->data.call_expr.name, sym->u.func_info.param_count, arg_count);
+    }
+    
+    /* 返回函数的返回类型 */
+    return (ExprType){sym->type, 0, 0};
+}
+
 /* 检查表达式（主函数） */
 static ExprType check_expr(ASTNode* expr) {
     if (!expr) return (ExprType){TYPE_UNKNOWN, 0, 0};
@@ -269,10 +276,19 @@ static void check_assign_stmt(ASTNode* node) {
         return;
     }
     
-    SymEntry* lhs_sym = lookup_symbol(node->data.assign.lhs->data.var_ref.name);
+    const char* lhs_name = node->data.assign.lhs->data.var_ref.name;
+    SymEntry* lhs_sym = lookup_symbol(lhs_name);
+    
     if (!lhs_sym) {
-        report_error(node->line, "Undeclared variable '%s'", 
-                    node->data.assign.lhs->data.var_ref.name);
+        report_error(node->line, "Undeclared variable '%s'", lhs_name);
+        return;
+    }
+    
+    /* 特殊处理：如果是给函数名赋值（函数返回值） */
+    if (lhs_sym->kind == SYM_FUNC) {
+        /* 在函数内部给函数名赋值，标记为有返回值 */
+        lhs_sym->u.func_info.has_return = 1;
+        printf("[DEBUG] Function '%s' has return value assignment\n", lhs_name);
         return;
     }
     
@@ -291,15 +307,9 @@ static void check_assign_stmt(ASTNode* node) {
     ExprType rhs = check_expr(node->data.assign.rhs);
     
     /* 类型兼容性检查 */
-    if (!is_type_compatible(rhs.type, lhs_type)) {
+    if (!is_assign_compatible(lhs_type, rhs.type)) {
         report_error(node->line, "Type mismatch: cannot assign %s to %s",
                     type_name(rhs.type), type_name(lhs_type));
-    }
-    
-    /* 如果是函数赋值（函数名出现在赋值左边） */
-    if (lhs_sym->kind == SYM_FUNC) {
-        /* 在函数内部给函数名赋值 */
-        lhs_sym->u.func_info.has_return = 1;
     }
 }
 
@@ -354,11 +364,7 @@ static void check_compound_stmt(ASTNode* node) {
     check_statement_list(node->data.compound.stmt_list);
 }
 
-/* 检查过程调用 */
-static void check_call_stmt(ASTNode* node) {
-    /* 简化版本：假设调用的是已声明的过程 */
-    /* 实际需要从AST中获取被调用的函数名 */
-}
+
 
 /* 检查read语句 */
 static void check_read_stmt(ASTNode* node) {
@@ -369,6 +375,8 @@ static void check_read_stmt(ASTNode* node) {
 static void check_write_stmt(ASTNode* node) {
     /* write语句中的表达式检查在表达式检查中完成 */
 }
+
+
 
 /* 检查单个语句 */
 static void check_statement(ASTNode* stmt) {
@@ -392,9 +400,9 @@ static void check_statement(ASTNode* stmt) {
         case AST_COMPOUND_STMT:
             check_compound_stmt(stmt);
             break;
-        case AST_CALL_STMT:
-            check_call_stmt(stmt);
-            break;
+        // case AST_CALL_STMT:
+        //     check_call_stmt(stmt);
+        //     break;
         case AST_READ_STMT:
             check_read_stmt(stmt);
             break;
@@ -473,53 +481,127 @@ static void process_var_decl(ASTNode* node) {
 }
 
 /* 处理子程序声明 */
-/* 处理子程序声明 */
-/* 处理子程序声明 */
 static void process_subprog_decl(ASTNode* node) {
     if (!node) return;
     
     if (node->type == AST_SUBPROG_DECL) {
-        //printf("[DEBUG] process_subprog_decl: %s\n", node->data.subprog.name);
+        printf("[DEBUG] Processing subprogram: %s\n", node->data.subprog.name);
         
-        /* ========== 关键修复：先添加函数/过程名到当前作用域（外层） ========== */
+        /* 添加函数/过程名到当前作用域（外层） */
         if (node->data.subprog.is_function) {
             add_func(node->data.subprog.name, NULL, 0,
                     node->data.subprog.return_type, node->line);
-            //printf("[DEBUG] After add_func, looking up: %s\n", node->data.subprog.name);
-             SymEntry* test = lookup_symbol(node->data.subprog.name);
-            //printf("[DEBUG] lookup result: %s\n", test ? test->name : "NULL");
         } else {
             add_proc(node->data.subprog.name, NULL, 0, node->line);
         }
         
         /* 进入新作用域（函数内部） */
         enter_scope();
+        printf("[DEBUG] Entered scope level: %d\n", get_current_scope_level());
         
-        /* 添加参数到符号表（在函数作用域内） */
+        /* ========== 关键修复：添加参数到符号表 ========== */
         ASTNode* param = node->data.subprog.params;
+        int param_count = 0;
+        
+        printf("[DEBUG] Params node: %p\n", param);
+        
         while (param && param->type == AST_PARAM_LIST) {
-            //printf("[DEBUG] param: is_var=%d, type=%d\n", param->data.param.is_var, param->data.param.type);
+            printf("[DEBUG] Processing param group: is_var=%d, type=%d\n", 
+                   param->data.param.is_var, param->data.param.type);
             
+            /* 获取参数列表中的标识符 */
             ASTNode* id_list = param->data.param.id_list;
             while (id_list && id_list->type == AST_IDENTIFIER) {
-                //printf("[DEBUG] Adding parameter: %s\n", id_list->data.id_node.name);
+                printf("[DEBUG] Adding parameter: %s, type=%d\n", 
+                       id_list->data.id_node.name, param->data.param.type);
+                
+                /* 添加参数作为变量 */
                 add_var(id_list->data.id_node.name, param->data.param.type, node->line);
+                param_count++;
+                
                 id_list = id_list->next;
             }
+            
             param = param->data.param.next_param;
         }
         
-        /* 检查子程序体中的语句 */
-        check_statement(node->data.subprog.body);
+        /* 更新函数/过程的参数数量 */
+        SymEntry* entry = lookup_symbol(node->data.subprog.name);
+        if (entry && (entry->kind == SYM_FUNC || entry->kind == SYM_PROC)) {
+            entry->u.func_info.param_count = param_count;
+            printf("[DEBUG] Set param_count for %s to %d\n", node->data.subprog.name, param_count);
+        }
         
-        /* 如果是函数，检查是否有返回值 */
-        SymEntry* func = lookup_symbol(node->data.subprog.name);
-        if (func && func->kind == SYM_FUNC && !func->u.func_info.has_return) {
-            report_error(node->line, "Function '%s' may not return a value", func->name);
+        /* 检查子程序体中的语句 */
+        if (node->data.subprog.body) {
+            check_statement(node->data.subprog.body);
+        }
+        
+        /* ========== 新增：在 exit_scope() 之前打印当前作用域的符号表 ========== */
+        printf("\n========== Symbol Table for Function '%s' (Scope Level %d) ==========\n", 
+               node->data.subprog.name, get_current_scope_level());
+        printf("%-20s %-10s %-10s %s\n", "Name", "Kind", "Type", "Info");
+        printf("--------------------------------------------------------\n");
+        
+        /* 打印当前作用域的所有符号 */
+        if (sym_manager.current_scope) {
+            SymEntry* sym_entry = sym_manager.current_scope->symbols;
+            while (sym_entry) {
+                const char* kind_str = "";
+                const char* type_str = "";
+                
+                switch (sym_entry->kind) {
+                    case SYM_CONST: kind_str = "CONST"; break;
+                    case SYM_VAR: kind_str = "VAR"; break;
+                    case SYM_PROC: kind_str = "PROC"; break;
+                    case SYM_FUNC: kind_str = "FUNC"; break;
+                }
+                
+                switch (sym_entry->type) {
+                    case TYPE_INTEGER: type_str = "integer"; break;
+                    case TYPE_REAL: type_str = "real"; break;
+                    case TYPE_BOOLEAN: type_str = "boolean"; break;
+                    case TYPE_CHAR: type_str = "char"; break;
+                    case TYPE_ARRAY: type_str = "array"; break;
+                    default: type_str = "unknown"; break;
+                }
+                
+                printf("%-20s %-10s %-10s ", 
+                       sym_entry->name, kind_str, type_str);
+                
+                if (sym_entry->kind == SYM_CONST) {
+                    printf("= %d", sym_entry->u.const_value);
+                } else if (sym_entry->type == TYPE_ARRAY) {
+                    printf("[%d..%d] of %s", 
+                           sym_entry->u.array_info.low, 
+                           sym_entry->u.array_info.high,
+                           type_name(sym_entry->u.array_info.elem_type));
+                } else if (sym_entry->kind == SYM_FUNC) {
+                    printf("returns %s, %d param(s)", 
+                           type_name(sym_entry->u.func_info.return_type),
+                           sym_entry->u.func_info.param_count);
+                } else if (sym_entry->kind == SYM_PROC) {
+                    printf("%d param(s)", sym_entry->u.func_info.param_count);
+                }
+                printf("\n");
+                
+                sym_entry = sym_entry->next;
+            }
+        }
+        printf("==========================================================\n\n");
+        
+        /* 如果是函数，检查是否有返回值赋值 */
+        if (node->data.subprog.is_function) {
+            SymEntry* func_entry = lookup_symbol(node->data.subprog.name);
+            if (func_entry && !func_entry->u.func_info.has_return) {
+                /* 检查函数体中是否有对函数名的赋值 */
+                /* 这里可以添加更详细的检查 */
+            }
         }
         
         /* 退出作用域 */
         exit_scope();
+        printf("[DEBUG] Exited scope, back to level: %d\n", get_current_scope_level());
         
         /* 处理下一个子程序 */
         if (node->data.subprog.next_decl) {

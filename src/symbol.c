@@ -41,26 +41,11 @@ void enter_scope(void) {
     sym_manager.current_scope = new_scope;
 }
 
-/* 退出当前作用域 */
 void exit_scope(void) {
     if (sym_manager.current_scope == NULL) return;
     
-    Scope* old = sym_manager.current_scope;
-    sym_manager.current_scope = old->parent;
-    
-    /* 释放该作用域内的所有符号 */
-    SymEntry* entry = old->symbols;
-    while (entry) {
-        SymEntry* next = entry->next;
-        /* 释放函数/过程的参数列表 */
-        if ((entry->kind == SYM_FUNC || entry->kind == SYM_PROC) 
-            && entry->u.func_info.params) {
-            free(entry->u.func_info.params);
-        }
-        free(entry);
-        entry = next;
-    }
-    free(old);
+    // 只移动指针，不释放任何内存
+    sym_manager.current_scope = sym_manager.current_scope->parent;
 }
 
 /* 获取当前作用域层级 */
@@ -222,11 +207,11 @@ static const char* type_name(DataType t) {
 
 
 /* 递归打印作用域（辅助函数） */
-static void print_scope_recursive(Scope* scope, FILE* output) {
+static void print_scope_recursive(Scope* scope, FILE* output, int depth) {
     if (!scope) return;
     
-    // 先打印父作用域（外层）
-    print_scope_recursive(scope->parent, output);
+    // 先递归打印父作用域（外层），这样输出顺序是从外层到内层
+    print_scope_recursive(scope->parent, output, depth + 1);
     
     // 打印当前作用域的符号
     SymEntry* entry = scope->symbols;
@@ -250,22 +235,22 @@ static void print_scope_recursive(Scope* scope, FILE* output) {
             default: type_str = "unknown"; break;
         }
         
-        fprintf(output, "%-20s %-10s %-10s %-8d", 
+        fprintf(output, "%-20s %-10s %-10s %-8d ", 
                 entry->name, kind_str, type_str, entry->scope_level);
                 
         if (entry->kind == SYM_CONST) {
-            fprintf(output, " = %d", entry->u.const_value);
+            fprintf(output, "= %d", entry->u.const_value);
         } else if (entry->type == TYPE_ARRAY) {
-            fprintf(output, " [%d..%d] of %s", 
+            fprintf(output, "[%d..%d] of %s", 
                     entry->u.array_info.low, 
                     entry->u.array_info.high,
                     type_name(entry->u.array_info.elem_type));
         } else if (entry->kind == SYM_FUNC) {
-            fprintf(output, " returns %s, %d param(s)", 
+            fprintf(output, "returns %s, %d param(s)", 
                     type_name(entry->u.func_info.return_type),
                     entry->u.func_info.param_count);
         } else if (entry->kind == SYM_PROC) {
-            fprintf(output, " %d param(s)", entry->u.func_info.param_count);
+            fprintf(output, "%d param(s)", entry->u.func_info.param_count);
         }
         fprintf(output, "\n");
         
@@ -273,7 +258,55 @@ static void print_scope_recursive(Scope* scope, FILE* output) {
     }
 }
 
-/* 打印符号表 */
+    // 递归打印（先外层后内层）
+    void print_scope(Scope* s,FILE* output) {
+       if (!s) return;
+        print_scope(s->parent,output);
+        
+        SymEntry* entry = s->symbols;
+        while (entry) {
+            const char* kind_str = "";
+            const char* type_str = "";
+            
+            switch (entry->kind) {
+                case SYM_CONST: kind_str = "CONST"; break;
+                case SYM_VAR: kind_str = "VAR"; break;
+                case SYM_PROC: kind_str = "PROC"; break;
+                case SYM_FUNC: kind_str = "FUNC"; break;
+            }
+            
+            switch (entry->type) {
+                case TYPE_INTEGER: type_str = "integer"; break;
+                case TYPE_REAL: type_str = "real"; break;
+                case TYPE_BOOLEAN: type_str = "boolean"; break;
+                case TYPE_CHAR: type_str = "char"; break;
+                case TYPE_ARRAY: type_str = "array"; break;
+                default: type_str = "unknown"; break;
+            }
+            
+            fprintf(output, "%-20s %-10s %-10s %-8d ", 
+                    entry->name, kind_str, type_str, entry->scope_level);
+                    
+            if (entry->kind == SYM_CONST) {
+                fprintf(output, "= %d", entry->u.const_value);
+            } else if (entry->type == TYPE_ARRAY) {
+                fprintf(output, "[%d..%d] of %s", 
+                        entry->u.array_info.low, 
+                        entry->u.array_info.high,
+                        type_name(entry->u.array_info.elem_type));
+            } else if (entry->kind == SYM_FUNC) {
+                fprintf(output, "returns %s, %d param(s)", 
+                        type_name(entry->u.func_info.return_type),
+                        entry->u.func_info.param_count);
+            } else if (entry->kind == SYM_PROC) {
+                fprintf(output, "%d param(s)", entry->u.func_info.param_count);
+            }
+            fprintf(output, "\n");
+            
+            entry = entry->next;
+        }
+    }
+
 void print_symtable(FILE* output) {
     if (output == NULL) output = stdout;
     
@@ -281,21 +314,43 @@ void print_symtable(FILE* output) {
     fprintf(output, "%-20s %-10s %-10s %-8s %s\n", "Name", "Kind", "Type", "Scope", "Info");
     fprintf(output, "--------------------------------------------------------\n");
     
-    // 需要从最外层作用域开始打印，但 current_scope 指向最内层
-    // 先找到最外层作用域
+    // 找到根作用域
     Scope* root = sym_manager.current_scope;
     while (root && root->parent) {
         root = root->parent;
     }
-    print_scope_recursive(root, output);
+    
+    print_scope(root, output);
     
     fprintf(output, "====================================\n");
 }
 
 
-/* 释放符号表 */
+
 void free_symtable(void) {
-    while (sym_manager.current_scope) {
-        exit_scope();
+    // 找到根作用域
+    Scope* root = sym_manager.current_scope;
+    while (root && root->parent) {
+        root = root->parent;
     }
+    
+    // 遍历所有作用域并释放
+    Scope* scope = root;
+    while (scope) {
+        SymEntry* entry = scope->symbols;
+        while (entry) {
+            SymEntry* next = entry->next;
+            if ((entry->kind == SYM_FUNC || entry->kind == SYM_PROC) 
+                && entry->u.func_info.params) {
+                free(entry->u.func_info.params);
+            }
+            free(entry);
+            entry = next;
+        }
+        Scope* next_scope = scope->parent;
+        free(scope);
+        scope = next_scope;
+    }
+    
+    sym_manager.current_scope = NULL;
 }
