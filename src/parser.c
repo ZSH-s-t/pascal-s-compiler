@@ -390,10 +390,12 @@ static ASTNode *parse_statement(void) {
             } else {
                 /* 过程调用（或无参数函数调用）*/
                 ASTNode *call = ast_new_node(AST_CALL_STMT, line);
-                /* 暂不处理参数，直接返回调用节点 */
+                strcpy(call->data.call_stmt.name, name);
+                call->data.call_stmt.args = NULL;
+                
                 if (cur_token.type == TOKEN_LPAREN) {
                     advance();
-                    parse_expression_list();
+                    call->data.call_stmt.args = parse_expression_list();
                     expect(TOKEN_RPAREN);
                 }
                 return call;
@@ -434,22 +436,35 @@ static ASTNode *parse_statement(void) {
             node->data.for_stmt.body = parse_statement();
             return node;
         }
-        case TOKEN_READ:
+        case TOKEN_READ: {
             advance();
             expect(TOKEN_LPAREN);
-            parse_variable(); /* 变量列表简化 */
-            while (cur_token.type == TOKEN_COMMA) {
-                advance();
-                parse_variable();
+            ASTNode *node = ast_new_node(AST_READ_STMT, cur_token.line);
+            /* 解析变量列表 */
+            {
+                ASTNode *var_list = ast_new_node(AST_STMT_LIST, cur_token.line);
+                ASTNode *first_var = parse_variable();
+                var_list->data.stmt_list.first = var_list->data.stmt_list.last = first_var;
+                while (cur_token.type == TOKEN_COMMA) {
+                    advance();
+                    ASTNode *var = parse_variable();
+                    var_list->data.stmt_list.last->next = var;
+                    var_list->data.stmt_list.last = var;
+                }
+                node->data.read_stmt.var_list = var_list;
             }
             expect(TOKEN_RPAREN);
-            return ast_new_node(AST_READ_STMT, cur_token.line);
-        case TOKEN_WRITE:
+            return node;
+        }
+        case TOKEN_WRITE: {
             advance();
             expect(TOKEN_LPAREN);
-            parse_expression_list();
+            ASTNode *node = ast_new_node(AST_WRITE_STMT, cur_token.line);
+            node->data.write_stmt.expr_list = parse_expression_list();
+            node->data.write_stmt.is_writeln = 0;
             expect(TOKEN_RPAREN);
-            return ast_new_node(AST_WRITE_STMT, cur_token.line);
+            return node;
+        }
         default:
             syntax_error(cur_token.line, "Unexpected token in statement");
             advance();

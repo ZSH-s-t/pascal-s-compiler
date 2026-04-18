@@ -176,6 +176,23 @@ struct ASTNode {
             DataType type;
             ASTNode *next_param;
         } param;
+
+        /* read语句 */
+        struct {
+            ASTNode *var_list;  /* 变量列表 */
+        } read_stmt;
+
+        /* write语句 */
+        struct {
+            ASTNode *expr_list; /* 表达式列表 */
+            int is_writeln;     /* 是否为writeln */
+        } write_stmt;
+
+        /* 过程调用语句 */
+        struct {
+            char name[64];
+            ASTNode *args;      /* 参数列表 */
+        } call_stmt;
     } data;
 
     ASTNode *next;      /* 通用链表指针 */

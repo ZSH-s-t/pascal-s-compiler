@@ -278,6 +278,25 @@ void ast_print(ASTNode *node, int indent) {
             for (ASTNode *s = node->data.stmt_list.first; s; s = s->next)
                 ast_print(s, indent);
             break;
+        case AST_READ_STMT:
+            printf("Read (line %d)\n", node->line);
+            if (node->data.read_stmt.var_list) {
+                ast_print(node->data.read_stmt.var_list, indent+1);
+            }
+            break;
+        case AST_WRITE_STMT:
+            printf("Write%s (line %d)\n", 
+                   node->data.write_stmt.is_writeln ? "ln" : "", node->line);
+            if (node->data.write_stmt.expr_list) {
+                ast_print(node->data.write_stmt.expr_list, indent+1);
+            }
+            break;
+        case AST_CALL_STMT:
+            printf("CallStmt: %s (line %d)\n", node->data.call_stmt.name, node->line);
+            if (node->data.call_stmt.args) {
+                ast_print(node->data.call_stmt.args, indent+1);
+            }
+            break;
         default:
             printf("<Node type %d> (line %d)\n", node->type, node->line);
     }
@@ -348,6 +367,15 @@ void ast_free(ASTNode *node) {
         case AST_PARAM_LIST:
             ast_free(node->data.param.id_list);
             ast_free(node->data.param.next_param);
+            break;
+        case AST_READ_STMT:
+            ast_free(node->data.read_stmt.var_list);
+            break;
+        case AST_WRITE_STMT:
+            ast_free(node->data.write_stmt.expr_list);
+            break;
+        case AST_CALL_STMT:
+            ast_free(node->data.call_stmt.args);
             break;
         default:
             break;
