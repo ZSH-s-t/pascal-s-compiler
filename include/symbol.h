@@ -103,6 +103,9 @@ int check_redeclaration(const char* name, int line);
 /* 打印符号表（调试用） */
 void print_symtable(FILE* output);
 
+/* 打印完整符号表（包含所有作用域） */
+void print_complete_symtable(FILE* output);
+
 /* 释放符号表 */
 void free_symtable(void);
 

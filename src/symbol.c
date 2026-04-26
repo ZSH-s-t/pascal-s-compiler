@@ -206,64 +206,33 @@ static const char* type_name(DataType t) {
 
 
 
-/* 递归打印作用域（辅助函数） */
-static void print_scope_recursive(Scope* scope, FILE* output, int depth) {
-    if (!scope) return;
+/* 打印完整符号表（包含所有作用域） */
+void print_complete_symtable(FILE* output) {
+    if (output == NULL) output = stdout;
     
-    // 先递归打印父作用域（外层），这样输出顺序是从外层到内层
-    print_scope_recursive(scope->parent, output, depth + 1);
+    fprintf(output, "\n");
+    fprintf(output, "============================================================\n");
+    fprintf(output, "                    COMPLETE SYMBOL TABLE\n");
+    fprintf(output, "============================================================\n");
     
-    // 打印当前作用域的符号
-    SymEntry* entry = scope->symbols;
-    while (entry) {
-        const char* kind_str = "";
-        const char* type_str = "";
-        
-        switch (entry->kind) {
-            case SYM_CONST: kind_str = "CONST"; break;
-            case SYM_VAR: kind_str = "VAR"; break;
-            case SYM_PROC: kind_str = "PROC"; break;
-            case SYM_FUNC: kind_str = "FUNC"; break;
-        }
-        
-        switch (entry->type) {
-            case TYPE_INTEGER: type_str = "integer"; break;
-            case TYPE_REAL: type_str = "real"; break;
-            case TYPE_BOOLEAN: type_str = "boolean"; break;
-            case TYPE_CHAR: type_str = "char"; break;
-            case TYPE_ARRAY: type_str = "array"; break;
-            default: type_str = "unknown"; break;
-        }
-        
-        fprintf(output, "%-20s %-10s %-10s %-8d ", 
-                entry->name, kind_str, type_str, entry->scope_level);
-                
-        if (entry->kind == SYM_CONST) {
-            fprintf(output, "= %d", entry->u.const_value);
-        } else if (entry->type == TYPE_ARRAY) {
-            fprintf(output, "[%d..%d] of %s", 
-                    entry->u.array_info.low, 
-                    entry->u.array_info.high,
-                    type_name(entry->u.array_info.elem_type));
-        } else if (entry->kind == SYM_FUNC) {
-            fprintf(output, "returns %s, %d param(s)", 
-                    type_name(entry->u.func_info.return_type),
-                    entry->u.func_info.param_count);
-        } else if (entry->kind == SYM_PROC) {
-            fprintf(output, "%d param(s)", entry->u.func_info.param_count);
-        }
-        fprintf(output, "\n");
-        
-        entry = entry->next;
+    Scope* root = sym_manager.current_scope;
+    while (root && root->parent) {
+        root = root->parent;
     }
-}
-
-    // 递归打印（先外层后内层）
-    void print_scope(Scope* s,FILE* output) {
-       if (!s) return;
-        print_scope(s->parent,output);
+    
+    Scope* scope = root;
+    int scope_index = 0;
+    
+    while (scope) {
+        fprintf(output, "\n--- Scope%d (Level %d) ---\n", scope_index, scope->level);
+        fprintf(output, "%-20s %-10s %-10s %s\n", "Name", "Kind", "Type", "Info");
+        fprintf(output, "--------------------------------------------------------\n");
         
-        SymEntry* entry = s->symbols;
+        SymEntry* entry = scope->symbols;
+        if (!entry) {
+            fprintf(output, "(empty)\n");
+        }
+        
         while (entry) {
             const char* kind_str = "";
             const char* type_str = "";
@@ -284,8 +253,8 @@ static void print_scope_recursive(Scope* scope, FILE* output, int depth) {
                 default: type_str = "unknown"; break;
             }
             
-            fprintf(output, "%-20s %-10s %-10s %-8d ", 
-                    entry->name, kind_str, type_str, entry->scope_level);
+            fprintf(output, "%-20s %-10s %-10s ", 
+                    entry->name, kind_str, type_str);
                     
             if (entry->kind == SYM_CONST) {
                 fprintf(output, "= %d", entry->u.const_value);
@@ -305,24 +274,18 @@ static void print_scope_recursive(Scope* scope, FILE* output, int depth) {
             
             entry = entry->next;
         }
+        
+        scope = scope->parent;
+        scope_index++;
     }
+    
+    fprintf(output, "\n============================================================\n");
+    fprintf(output, "                    END OF SYMBOL TABLE\n");
+    fprintf(output, "============================================================\n");
+}
 
 void print_symtable(FILE* output) {
-    if (output == NULL) output = stdout;
-    
-    fprintf(output, "\n========== Symbol Table ==========\n");
-    fprintf(output, "%-20s %-10s %-10s %-8s %s\n", "Name", "Kind", "Type", "Scope", "Info");
-    fprintf(output, "--------------------------------------------------------\n");
-    
-    // 找到根作用域
-    Scope* root = sym_manager.current_scope;
-    while (root && root->parent) {
-        root = root->parent;
-    }
-    
-    print_scope(root, output);
-    
-    fprintf(output, "====================================\n");
+    print_complete_symtable(output);
 }
 
 

@@ -172,6 +172,9 @@ int main(int argc, char *argv[]) {
     /* ========== 6. 清理和退出 ========== */
     ast_free(ast);
     close_lexer();
+    
+    /* 代码生成结束后，释放符号表内存 */
+    free_symtable();
 
     if (verbose) {
         printf("========================================\n");

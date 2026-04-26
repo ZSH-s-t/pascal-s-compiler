@@ -41,6 +41,7 @@ REAL            {DIGIT}+\.{DIGIT}+
 CHAR_CONST      '[^']'
 COMMENT         \{[^}]*\}
 UNTERMINATED_COMMENT \{[^}]*
+LINE_COMMENT    \/\/[^\n]*
 
 WHITESPACE      [ \t\r]+
 NEWLINE         \n
@@ -157,6 +158,47 @@ ILLEGAL_CHAR    .
 {RBRACKET}      { UPDATE_COLUMN(); return TOKEN_RBRACKET; }
 {COLON}         { UPDATE_COLUMN(); return TOKEN_COLON; }
 
+{LINE_COMMENT}  { UPDATE_COLUMN(); /* skip // single-line comment */ }
+
+"(*"            {
+                    /* (* ... *) style comment */
+                    int c;
+                    UPDATE_COLUMN();
+                    int comment_start_line = yylineno;
+                    while (1) {
+                        c = input();
+                        if (c == EOF || c == 0) {
+                            add_error(LEX_ERROR_UNTERMINATED_COMMENT, comment_start_line,
+                                      get_token_start_column(),
+                                      "Unterminated comment: missing '*)');");
+                            break;
+                        }
+                        if (c == '\n') {
+                            yylineno++;
+                            RESET_COLUMN();
+                        } else {
+                            yycolumn++;
+                        }
+                        if (c == '*') {
+                            int next = input();
+                            if (next == ')') {
+                                yycolumn++;
+                                break;
+                            } else if (next == '\n') {
+                                yylineno++;
+                                RESET_COLUMN();
+                            } else if (next == EOF || next == 0) {
+                                add_error(LEX_ERROR_UNTERMINATED_COMMENT, comment_start_line,
+                                          get_token_start_column(),
+                                          "Unterminated comment: missing '*)');");
+                                break;
+                            } else {
+                                yycolumn++;
+                            }
+                        }
+                    }
+                }
+
 {COMMENT}       {
                     int i;
                     for (i = 0; i < yyleng; i++) {
@@ -222,7 +264,15 @@ TokenType get_next_token(Token *token) {
         return TOKEN_ERROR;
     }
     
-    TokenType type = (TokenType)yylex();
+    int lex_result = yylex();
+    TokenType type;
+    
+    /* flex returns 0 at EOF, map it to TOKEN_EOF */
+    if (lex_result == 0) {
+        type = TOKEN_EOF;
+    } else {
+        type = (TokenType)lex_result;
+    }
     
     token->type = type;
     token->line = yylineno;

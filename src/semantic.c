@@ -224,19 +224,27 @@ static ExprType check_call_expr(ASTNode* node) {
     int arg_count = 0;
     ASTNode* arg = NULL;
     
+    printf("[DEBUG check_call_expr] function=%s, args_list=%p, type=%d\n", 
+           node->data.call_expr.name, args_list, args_list ? args_list->type : -1);
+    
     if (args_list) {
         if (args_list->type == AST_STMT_LIST) {
+            printf("[DEBUG] args_list is AST_STMT_LIST\n");
             arg = args_list->data.stmt_list.first;
         } else {
+            printf("[DEBUG] args_list is direct expression, type=%d\n", args_list->type);
             arg = args_list;
         }
         
         while (arg) {
             arg_count++;
+            printf("[DEBUG] arg %d: type=%d\n", arg_count, arg->type);
             check_expr(arg);
             arg = arg->next;
         }
     }
+    
+    printf("[DEBUG] arg_count=%d, param_count=%d\n", arg_count, sym->u.func_info.param_count);
     
     if (arg_count != sym->u.func_info.param_count) {
         report_error(node->line, "Function '%s' expects %d argument(s), but got %d",
@@ -482,17 +490,27 @@ static void process_var_decl(ASTNode* node) {
 
 /* 处理子程序声明 */
 static void process_subprog_decl(ASTNode* node) {
-    if (!node) return;
+    if (!node) {
+        printf("[DEBUG] process_subprog_decl: node is NULL\n");
+        return;
+    }
+    
+    printf("[DEBUG] process_subprog_decl: node type=%d, AST_SUBPROG_DECL=%d\n", 
+           node->type, AST_SUBPROG_DECL);
     
     if (node->type == AST_SUBPROG_DECL) {
-        printf("[DEBUG] Processing subprogram: %s\n", node->data.subprog.name);
+        printf("[DEBUG] Processing subprogram: %s (is_function=%d)\n", 
+               node->data.subprog.name, node->data.subprog.is_function);
         
         /* 添加函数/过程名到当前作用域（外层） */
         if (node->data.subprog.is_function) {
             add_func(node->data.subprog.name, NULL, 0,
                     node->data.subprog.return_type, node->line);
+            printf("[DEBUG] Added function: %s, return_type=%d\n", 
+                   node->data.subprog.name, node->data.subprog.return_type);
         } else {
             add_proc(node->data.subprog.name, NULL, 0, node->line);
+            printf("[DEBUG] Added procedure: %s\n", node->data.subprog.name);
         }
         
         /* 进入新作用域（函数内部） */
@@ -503,33 +521,46 @@ static void process_subprog_decl(ASTNode* node) {
         ASTNode* param = node->data.subprog.params;
         int param_count = 0;
         
-        printf("[DEBUG] Params node: %p\n", param);
+        printf("[DEBUG process_subprog] function=%s, params=%p\n", 
+               node->data.subprog.name, param);
         
-        while (param && param->type == AST_PARAM_LIST) {
-            printf("[DEBUG] Processing param group: is_var=%d, type=%d\n", 
-                   param->data.param.is_var, param->data.param.type);
+        /* 遍历所有参数组 */
+        while (param) {
+            printf("[DEBUG] param node type=%d, is_var=%d, type=%d\n", 
+                   param->type, param->data.param.is_var, param->data.param.type);
             
-            /* 获取参数列表中的标识符 */
-            ASTNode* id_list = param->data.param.id_list;
-            while (id_list && id_list->type == AST_IDENTIFIER) {
-                printf("[DEBUG] Adding parameter: %s, type=%d\n", 
-                       id_list->data.id_node.name, param->data.param.type);
+            if (param->type == AST_PARAM_LIST) {
+                printf("[DEBUG] Processing param group: is_var=%d, type=%d\n", 
+                       param->data.param.is_var, param->data.param.type);
                 
-                /* 添加参数作为变量 */
-                add_var(id_list->data.id_node.name, param->data.param.type, node->line);
-                param_count++;
-                
-                id_list = id_list->next;
+                /* 获取参数列表中的标识符 */
+                ASTNode* id_list = param->data.param.id_list;
+                while (id_list && id_list->type == AST_IDENTIFIER) {
+                    printf("[DEBUG] Adding parameter: %s, type=%d\n", 
+                           id_list->data.id_node.name, param->data.param.type);
+                    
+                    /* 添加参数作为变量 */
+                    add_var(id_list->data.id_node.name, param->data.param.type, node->line);
+                    param_count++;
+                    
+                    id_list = id_list->next;
+                }
+            } else {
+                printf("[DEBUG] WARNING: param node type is not AST_PARAM_LIST (%d)\n", param->type);
             }
             
             param = param->data.param.next_param;
         }
+        
+        printf("[DEBUG] Total param_count for %s = %d\n", node->data.subprog.name, param_count);
         
         /* 更新函数/过程的参数数量 */
         SymEntry* entry = lookup_symbol(node->data.subprog.name);
         if (entry && (entry->kind == SYM_FUNC || entry->kind == SYM_PROC)) {
             entry->u.func_info.param_count = param_count;
             printf("[DEBUG] Set param_count for %s to %d\n", node->data.subprog.name, param_count);
+        } else {
+            printf("[DEBUG] ERROR: Could not find symbol %s\n", node->data.subprog.name);
         }
         
         /* 检查子程序体中的语句 */
@@ -604,9 +635,15 @@ static void process_subprog_decl(ASTNode* node) {
         printf("[DEBUG] Exited scope, back to level: %d\n", get_current_scope_level());
         
         /* 处理下一个子程序 */
+        printf("[DEBUG] Checking next_decl: %p\n", node->data.subprog.next_decl);
         if (node->data.subprog.next_decl) {
+            printf("[DEBUG] Recursively processing next subprogram declaration\n");
             process_subprog_decl(node->data.subprog.next_decl);
+        } else {
+            printf("[DEBUG] No more subprogram declarations\n");
         }
+    } else {
+        printf("[DEBUG] WARNING: node type is not AST_SUBPROG_DECL (%d)\n", node->type);
     }
 }
 
@@ -654,8 +691,7 @@ SemanticResult semantic_analyze(ASTNode* ast) {
         printf("No semantic errors detected.\n");
     }
     
-    /* 释放符号表 */
-    free_symtable();
+    /* 注意：符号表不在这里释放，等到代码生成结束后再释放 */
     
     return (SemanticResult){error_count > 0, error_count};
 }

@@ -282,12 +282,20 @@ static void skip_whitespace_and_comments(void) {
             }
         }
         
-        /* 跳过C风格注释 slash-star ... star-slash */
+        /* 跳过C风格注释 // 和 slash-star ... star-slash */
         if (c == '/') {
             int next = fgetc(g_lexer_state.input_file);
             update_position(next);
             
-            if (next == '*') {
+            if (next == '/') {
+                /* 这是一个 // 单行注释，读取到行尾 */
+                while ((c = read_char()) != EOF) {
+                    if (c == '\n') {
+                        break;
+                    }
+                }
+                continue;
+            } else if (next == '*') {
                 /* 这是一个 slash-star ... star-slash 注释 */
                 int comment_line = g_lexer_state.current_line;
                 int comment_col = g_lexer_state.current_column - 2;
