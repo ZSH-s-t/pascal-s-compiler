@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "lexer.h"
 #include "error.h"
+#include "ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -219,17 +220,20 @@ static ASTNode *parse_var_declarations(void) {
                 syntax_error(cur_token.line, "Expected type");
                 decl->data.var_decl.data_type = TYPE_INTEGER;
             }
+            decl->data.var_decl.elem_type = decl->data.var_decl.data_type;
             advance();
         } else {
-            /* 数组元素类型 */
+            /* 数组元素类型 - 保持 data_type 为 TYPE_ARRAY */
+            DataType et = TYPE_INTEGER;
             if (cur_token.type == TOKEN_INTEGER)
-                decl->data.var_decl.data_type = TYPE_INTEGER;
+                et = TYPE_INTEGER;
             else if (cur_token.type == TOKEN_REAL)
-                decl->data.var_decl.data_type = TYPE_REAL;
+                et = TYPE_REAL;
             else if (cur_token.type == TOKEN_BOOLEAN)
-                decl->data.var_decl.data_type = TYPE_BOOLEAN;
+                et = TYPE_BOOLEAN;
             else if (cur_token.type == TOKEN_CHAR)
-                decl->data.var_decl.data_type = TYPE_CHAR;
+                et = TYPE_CHAR;
+            decl->data.var_decl.elem_type = et;
             advance();
         }
 
@@ -243,16 +247,38 @@ static ASTNode *parse_var_declarations(void) {
     return head;
 }
 
-/* 下标范围（简化，返回表达式列表） */
+/* 下标范围（支持多维数组，如 array[0..9, 0..9] of integer） */
 static ASTNode *parse_period(void) {
-    /* 返回一个表示范围的表达式链表 */
-    ASTNode *first = parse_expression();
-    expect(TOKEN_DOUBLEDOT);
-    ASTNode *second = parse_expression();
-    ASTNode *list = ast_new_node(AST_STMT_LIST, first->line);
-    list->data.stmt_list.first = first;
-    list->data.stmt_list.last = second;
-    first->next = second;
+    /* 返回一个表示维度列表的表达式链表 */
+    ASTNode *list = ast_new_node(AST_STMT_LIST, cur_token.line);
+    list->data.stmt_list.first = NULL;
+    list->data.stmt_list.last = NULL;
+    
+    while (1) {
+        /* 解析单个维度：low..high */
+        ASTNode *first = parse_expression();
+        expect(TOKEN_DOUBLEDOT);
+        ASTNode *second = parse_expression();
+        
+        /* 将两个边界连接起来 */
+        first->next = second;
+        
+        /* 添加到维度列表 */
+        if (!list->data.stmt_list.first) {
+            list->data.stmt_list.first = first;
+            list->data.stmt_list.last = second;
+        } else {
+            list->data.stmt_list.last->next = first;
+            list->data.stmt_list.last = second;
+        }
+        
+        /* 检查是否有更多维度（逗号分隔） */
+        if (cur_token.type == TOKEN_COMMA) {
+            advance();  /* 跳过逗号，继续解析下一个维度 */
+        } else {
+            break;
+        }
+    }
     return list;
 }
 
@@ -277,6 +303,8 @@ static ASTNode *parse_subprogram_declarations(void) {
         int line = cur_token.line;
         ASTNode *sub = ast_new_node(AST_SUBPROG_DECL, line);
         sub->data.subprog.is_function = is_func;
+        sub->data.subprog.const_decls = NULL;
+        sub->data.subprog.var_decls = NULL;
         advance();
         if (cur_token.type != TOKEN_IDENTIFIER) {
             syntax_error(cur_token.line, "Expected subprogram name");
@@ -319,12 +347,15 @@ static ASTNode *parse_subprogram_declarations(void) {
             advance();
         }
         expect(TOKEN_SEMICOLON);
-        /* 子程序体（忽略常量/变量声明，直接解析复合语句） */
+        
+        /* 子程序体：先解析局部常量和变量声明，再解析复合语句 */
+        sub->data.subprog.const_decls = parse_const_declarations();
+        sub->data.subprog.var_decls = parse_var_declarations();
         sub->data.subprog.body = parse_compound_statement();
         expect(TOKEN_SEMICOLON);
 
         if (!head) head = sub;
-        else tail->next = sub;
+        else tail->data.subprog.next_decl = sub;
         tail = sub;
     }
     return head;
@@ -378,13 +409,33 @@ static ASTNode *parse_statement(void) {
                 node->data.assign.rhs = parse_expression();
                 return node;
             } else if (cur_token.type == TOKEN_LBRACKET) {
-                /* 数组元素赋值 */
+                /* 数组元素赋值（支持多维，如 a[i, j] := value） */
                 advance();
-                ASTNode *index = parse_expression();
+                ASTNode *first_index = parse_expression();
+                ASTNode *index_list = NULL;
+                
+                /* 检查是否有多个下标 */
+                if (cur_token.type == TOKEN_COMMA) {
+                    /* 多维数组访问，创建下标列表 */
+                    index_list = ast_new_node(AST_STMT_LIST, line);
+                    index_list->data.stmt_list.first = first_index;
+                    index_list->data.stmt_list.last = first_index;
+                    
+                    while (cur_token.type == TOKEN_COMMA) {
+                        advance();  /* 跳过逗号 */
+                        ASTNode *next_index = parse_expression();
+                        index_list->data.stmt_list.last->next = next_index;
+                        index_list->data.stmt_list.last = next_index;
+                    }
+                } else {
+                    /* 单维数组访问 */
+                    index_list = first_index;
+                }
+                
                 expect(TOKEN_RBRACKET);
                 expect(TOKEN_ASSIGN);
                 ASTNode *node = ast_new_node(AST_ASSIGN_STMT, line);
-                node->data.assign.lhs = ast_new_var_ref(name, index, line);
+                node->data.assign.lhs = ast_new_var_ref(name, index_list, line);
                 node->data.assign.rhs = parse_expression();
                 return node;
             } else {
@@ -436,6 +487,15 @@ static ASTNode *parse_statement(void) {
             node->data.for_stmt.body = parse_statement();
             return node;
         }
+        case TOKEN_WHILE: {
+            advance();  /* cur_token = while 后的 token */
+            int line = cur_token.line;
+            ASTNode *node = ast_new_node(AST_WHILE_STMT, line);
+            node->data.while_stmt.cond = parse_expression();
+            expect(TOKEN_DO);
+            node->data.while_stmt.body = parse_statement();
+            return node;
+        }
         case TOKEN_READ: {
             advance();
             expect(TOKEN_LPAREN);
@@ -465,6 +525,11 @@ static ASTNode *parse_statement(void) {
             expect(TOKEN_RPAREN);
             return node;
         }
+        case TOKEN_SEMICOLON:
+        case TOKEN_END:
+        case TOKEN_ELSE:
+            /* 空语句 - 直接返回 NULL */
+            return NULL;
         default:
             syntax_error(cur_token.line, "Unexpected token in statement");
             advance();
@@ -474,6 +539,11 @@ static ASTNode *parse_statement(void) {
 
 /* 表达式列表 */
 static ASTNode *parse_expression_list(void) {
+    /* 如果当前已经是右括号，返回空列表 */
+    if (cur_token.type == TOKEN_RPAREN) {
+        return NULL;
+    }
+    
     ASTNode *list = ast_new_node(AST_STMT_LIST, cur_token.line);
     ASTNode *first = parse_expression();
     list->data.stmt_list.first = list->data.stmt_list.last = first;
@@ -486,7 +556,7 @@ static ASTNode *parse_expression_list(void) {
     return list;
 }
 
-/* 变量解析（用于read语句等） */
+/* 变量解析（用于read语句等，支持多维数组） */
 static ASTNode *parse_variable(void) {
     if (cur_token.type != TOKEN_IDENTIFIER) {
         syntax_error(cur_token.line, "Expected variable");
@@ -499,7 +569,26 @@ static ASTNode *parse_variable(void) {
     ASTNode *index = NULL;
     if (cur_token.type == TOKEN_LBRACKET) {
         advance();
-        index = parse_expression();
+        ASTNode *first_index = parse_expression();
+        
+        /* 检查是否有多个下标 */
+        if (cur_token.type == TOKEN_COMMA) {
+            /* 多维数组访问，创建下标列表 */
+            index = ast_new_node(AST_STMT_LIST, line);
+            index->data.stmt_list.first = first_index;
+            index->data.stmt_list.last = first_index;
+            
+            while (cur_token.type == TOKEN_COMMA) {
+                advance();  /* 跳过逗号 */
+                ASTNode *next_index = parse_expression();
+                index->data.stmt_list.last->next = next_index;
+                index->data.stmt_list.last = next_index;
+            }
+        } else {
+            /* 单维数组访问 */
+            index = first_index;
+        }
+        
         expect(TOKEN_RBRACKET);
     }
     return ast_new_var_ref(name, index, line);
@@ -575,14 +664,35 @@ static ASTNode *parse_factor(void) {
                 /* 函数调用 */
                 advance();
                 ASTNode *args = NULL;
-                if (peek() != TOKEN_RPAREN) args = parse_expression_list();
+                if (cur_token.type != TOKEN_RPAREN) args = parse_expression_list();
                 expect(TOKEN_RPAREN);
                 return ast_new_call_expr(name, args, line);
             } else if (cur_token.type == TOKEN_LBRACKET) {
+                /* 数组访问（支持多维，如 a[i, j, k]） */
                 advance();
-                ASTNode *index = parse_expression();
+                ASTNode *first_index = parse_expression();
+                ASTNode *index_list = NULL;
+                
+                /* 检查是否有多个下标 */
+                if (cur_token.type == TOKEN_COMMA) {
+                    /* 多维数组访问，创建下标列表 */
+                    index_list = ast_new_node(AST_STMT_LIST, line);
+                    index_list->data.stmt_list.first = first_index;
+                    index_list->data.stmt_list.last = first_index;
+                    
+                    while (cur_token.type == TOKEN_COMMA) {
+                        advance();  /* 跳过逗号 */
+                        ASTNode *next_index = parse_expression();
+                        index_list->data.stmt_list.last->next = next_index;
+                        index_list->data.stmt_list.last = next_index;
+                    }
+                } else {
+                    /* 单维数组访问 */
+                    index_list = first_index;
+                }
+                
                 expect(TOKEN_RBRACKET);
-                return ast_new_var_ref(name, index, line);
+                return ast_new_var_ref(name, index_list, line);
             } else {
                 return ast_new_var_ref(name, NULL, line);
             }
@@ -615,6 +725,11 @@ static ASTNode *parse_factor(void) {
             advance();
             ASTNode *operand = parse_factor();
             return ast_new_unary_expr(UNARY_MINUS, operand, line);
+        }
+        case TOKEN_PLUS: {
+            /* 一元加号，直接解析后面的因子 */
+            advance();
+            return parse_factor();
         }
         default:
             syntax_error(line, "Unexpected token in factor");

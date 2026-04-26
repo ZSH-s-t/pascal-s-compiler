@@ -98,6 +98,7 @@ ILLEGAL_CHAR    .
 [Aa][Nn][Dd]                       { UPDATE_COLUMN(); return TOKEN_AND; }
 [Oo][Rr]                           { UPDATE_COLUMN(); return TOKEN_OR; }
 [Nn][Oo][Tt]                       { UPDATE_COLUMN(); return TOKEN_NOT; }
+[Ww][Hh][Ii][Ll][Ee]               { UPDATE_COLUMN(); return TOKEN_WHILE; }
 [Tt][Rr][Uu][Ee]                   { UPDATE_COLUMN(); 
                                       strncpy(yylval.str_val, yytext, sizeof(yylval.str_val) - 1);
                                       return TOKEN_TRUE; }

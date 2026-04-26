@@ -10,6 +10,9 @@
 #include "ast.h"
 #include <stdio.h>
 
+/* 全局变量：verbose 模式 */
+extern int g_verbose;
+
 /* 符号类型 */
 typedef enum {
     SYM_CONST,      // 常量
@@ -46,30 +49,36 @@ typedef struct SymEntry {
     SymKind kind;
     DataType type;
     int scope_level;
-    int line_declared;      // 声明行号（用于错误报告）
+    int line_declared;
     
     union {
-        int const_value;        // 常量值
-        ArrayInfo array_info;   // 数组信息
-        FuncInfo func_info;     // 函数/过程信息
+        union {
+            int int_val;
+            double real_val;
+            char char_val;
+            int bool_val;
+        } const_value;      // 修改为嵌套 union
+        ArrayInfo array_info;
+        FuncInfo func_info;
     } u;
     
-    struct SymEntry* next;      // 链表指针
-    struct SymEntry* scope_next; // 作用域内下一个符号
+    struct SymEntry* next;
+    struct SymEntry* scope_next;
 } SymEntry;
 
 /* 作用域 */
 typedef struct Scope {
-    int level;
-    SymEntry* symbols;          // 该作用域的符号链表
-    struct Scope* parent;
+    int level;// 作用域层级
+    SymEntry* symbols; // 该作用域的符号链表
+    struct Scope* parent;// 父作用域
+    struct Scope* next;  // 下一个作用域（兄弟节点）
 } Scope;
 
 /* 符号表管理器 */
 typedef struct {
-    Scope* current_scope;
-    int scope_counter;
-    int error_count;
+    Scope* current_scope;// 当前作用域，是一个链表
+    int scope_counter;// 作用域计数器
+    int error_count;  // 错误计数器
 } SymTableManager;
 
 /* 全局符号表管理器（供各模块使用） */
@@ -84,7 +93,10 @@ void exit_scope(void);
 int get_current_scope_level(void);
 
 /* 符号添加 */
-SymEntry* add_const(const char* name, int value, DataType type, int line);
+SymEntry* add_const_int(const char* name, int value, int line);
+SymEntry* add_const_real(const char* name, double value, int line);
+SymEntry* add_const_char(const char* name, char value, int line);
+SymEntry* add_const_bool(const char* name, int value, int line);
 SymEntry* add_var(const char* name, DataType type, int line);
 SymEntry* add_array(const char* name, ArrayInfo* info, int line);
 SymEntry* add_proc(const char* name, ParamInfo* params, int param_count, int line);

@@ -102,7 +102,20 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             }
             if (expr->data.var_ref.index_expr) {
                 fprintf(ctx->output, "[");
-                codegen_expression(ctx, expr->data.var_ref.index_expr);
+                /* 处理多维数组下标 */
+                if (expr->data.var_ref.index_expr->type == AST_STMT_LIST) {
+                    /* 多维数组：a[i, j, k] -> a[i][j][k] */
+                    ASTNode *idx = expr->data.var_ref.index_expr->data.stmt_list.first;
+                    int first = 1;
+                    while (idx) {
+                        if (!first) fprintf(ctx->output, "][");
+                        codegen_expression(ctx, idx);
+                        first = 0;
+                        idx = idx->next;
+                    }
+                } else {
+                    codegen_expression(ctx, expr->data.var_ref.index_expr);
+                }
                 fprintf(ctx->output, "]");
             }
             break;
@@ -474,13 +487,32 @@ static void codegen_var_decls(CodeGenContext *ctx, ASTNode *node) {
         ASTNode *id = node->data.var_decl.id_list;
         while (id && id->type == AST_IDENTIFIER) {
             codegen_indent(ctx);
-            fprintf(ctx->output, "%s %s", 
-                    get_c_type(node->data.var_decl.data_type),
-                    id->data.id_node.name);
             
             /* 处理数组 */
             if (node->data.var_decl.data_type == TYPE_ARRAY) {
-                fprintf(ctx->output, "[100]");  /* 简化处理 */
+                fprintf(ctx->output, "%s %s", 
+                        get_c_type(node->data.var_decl.elem_type),
+                        id->data.id_node.name);
+                /* 处理数组边界（支持多维） */
+                if (node->data.var_decl.array_bounds &&
+                    node->data.var_decl.array_bounds->type == AST_STMT_LIST) {
+                    ASTNode *bound = node->data.var_decl.array_bounds->data.stmt_list.first;
+                    while (bound) {
+                        ASTNode *second = bound->next;
+                        if (bound && bound->type == AST_CONST_VAL &&
+                            second && second->type == AST_CONST_VAL) {
+                            int size = second->data.const_val.int_val - bound->data.const_val.int_val + 1;
+                            fprintf(ctx->output, "[%d]", size);
+                        }
+                        bound = second->next;  /* 跳到下一维 */
+                    }
+                } else {
+                    fprintf(ctx->output, "[100]");  /* 默认大小 */
+                }
+            } else {
+                fprintf(ctx->output, "%s %s", 
+                        get_c_type(node->data.var_decl.data_type),
+                        id->data.id_node.name);
             }
             
             fprintf(ctx->output, ";\n");
@@ -554,6 +586,9 @@ static void codegen_subprog_decls(CodeGenContext *ctx, ASTNode *node) {
                     get_c_type(node->data.subprog.return_type),
                     node->data.subprog.name);
         }
+        
+        /* 生成局部变量声明 */
+        codegen_var_decls(ctx, node->data.subprog.var_decls);
         
         codegen_statement(ctx, node->data.subprog.body);
         

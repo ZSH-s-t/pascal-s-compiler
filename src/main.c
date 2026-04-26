@@ -1,7 +1,7 @@
 /**
  * @file main.c
  * @brief Pascal-S到C语言翻译器主程序
- * @author 编译原理课程设计小组
+ * @author 全体成员
  * 
  * 使用方法：
  *   ./pasc -i input.pas              # 输出到同目录下的同名.c文件
@@ -19,6 +19,9 @@
 #include "semantic.h"
 #include "codegen.h"
 #include "error.h"
+
+/* 全局变量：verbose 模式 */
+int g_verbose = 0;
 
 /**
  * @brief 生成默认的输出文件名（替换扩展名为.c）
@@ -98,6 +101,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* 设置全局 verbose 变量 */
+    g_verbose = verbose;
+
     /* 生成默认输出文件名 */
     if (!output_file) {
         output_file = generate_output_filename(input_file);
@@ -172,9 +178,6 @@ int main(int argc, char *argv[]) {
     /* ========== 6. 清理和退出 ========== */
     ast_free(ast);
     close_lexer();
-    
-    /* 代码生成结束后，释放符号表内存 */
-    free_symtable();
 
     if (verbose) {
         printf("========================================\n");
@@ -188,6 +191,6 @@ int main(int argc, char *argv[]) {
     }
 
     if (auto_output) free(output_file);
-    
+    free_symtable();
     return sem_result.has_error ? 1 : 0;
 }

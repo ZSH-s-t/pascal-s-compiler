@@ -235,6 +235,13 @@ void ast_print(ASTNode *node, int indent) {
             printf("\n");
             ast_print(node->data.for_stmt.body, indent+1);
             break;
+        case AST_WHILE_STMT:
+            printf("While (line %d):\n", node->line);
+            print_indent(indent+1); printf("Cond:\n");
+            ast_print(node->data.while_stmt.cond, indent+2);
+            print_indent(indent+1); printf("Body:\n");
+            ast_print(node->data.while_stmt.body, indent+2);
+            break;
         case AST_BINARY_EXPR:
             printf("BinaryOp: %s (line %d)\n", op_name(node->data.binary.op), node->line);
             ast_print(node->data.binary.left, indent+1);

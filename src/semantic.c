@@ -14,7 +14,133 @@
 #include <string.h>
 #include <stdarg.h> 
 
+// 语义分析错误计数器
 static int error_count = 0;
+/* 语义分析输入 */
+static ASTNode* ast = NULL;
+
+// 获取调试等级（根据 verbose 模式）
+static int get_debug_level(void) {
+    return g_verbose ? 1 : 0;
+}
+
+// 前向声明
+static void report_error(int line, const char* fmt, ...);
+static void process_const_decl(ASTNode* node);
+static void process_var_decl(ASTNode* node);
+static void process_subprog_decl(ASTNode* node);
+static void check_statement(ASTNode* node);
+static ExprType check_expr(ASTNode* expr);
+static void check_assign_stmt(ASTNode* node);
+static void check_if_stmt(ASTNode* node);
+static void check_for_stmt(ASTNode* node);
+static void check_compound_stmt(ASTNode* node);
+static void check_read_stmt(ASTNode* node);
+static void check_write_stmt(ASTNode* node);
+static ExprType check_binary_expr(ASTNode* node);
+static ExprType check_unary_expr(ASTNode* node);
+static ExprType check_var_ref(ASTNode* node);
+static ExprType check_const_val(ASTNode* node);
+static ExprType check_call_expr(ASTNode* node);
+static void debug_content(const char* fmt, ...);
+
+//====================================== 主入口函数 ======================================
+/* 0. 主语义分析函数
+ * @param ast 语法树根节点
+ * @return SemanticResult 语义分析结果
+ * @note 该函数会打印语义分析结果以及符号表结果，包括错误信息
+ */
+SemanticResult semantic_analyze(ASTNode* input_ast) {
+    error_count = 0;
+    ast = input_ast;
+    
+    // [错误检测]检查语法树根节点是否为空
+    debug_content("检测语法树根节点是否为空");
+    if (!ast) {
+        report_error(0, "AST is empty,no semantic analysis performed.");
+        return (SemanticResult){1, 1};
+    }
+    
+    debug_content("=== 语义分析开始 ===\n");
+    
+    /* 初始化符号表 */
+    init_symtable();
+    
+    /* 处理常量声明 */
+    if (ast->type == AST_PROGRAM) {
+        debug_content("Processing constant declarations");
+        //1. 处理常量声明
+        process_const_decl(ast->data.program.const_decls);
+        
+        debug_content("Processing var declarations");
+        //2. 处理变量声明
+        process_var_decl(ast->data.program.var_decls);
+        
+        debug_content("Processing subprogram declarations");
+        //3. 处理子程序声明
+        process_subprog_decl(ast->data.program.subprog_decls);
+        
+        debug_content("Checking main program body");
+        //4. 检查主程序体
+        check_statement(ast->data.program.body);
+    }
+    
+    /* 打印符号表 */
+    if(get_debug_level() >= 1)
+        print_symtable(stdout);
+    
+    debug_content("=== Semantic Analysis Complete ===\n");
+    if (error_count > 0) {
+        debug_content("Found %d semantic error(s)\n", error_count);
+    } else {
+        debug_content("No semantic errors detected.\n");
+    }
+    
+    /*符号表不在这里释放，等到代码生成结束后再释放 */
+    
+    return (SemanticResult){error_count > 0, error_count};
+}
+
+
+
+
+
+//====================================== 调试函数 ======================================
+/* 调试函数：用于输出所有调试信息 */
+static void debug(DebugContent debug_content, const char* fmt){
+    if(get_debug_level() == 0){
+        return;
+    }
+    printf("[semantic debug]: ");
+    switch (debug_content)
+    {
+        case PRINT_AST:
+            ast_print(ast, 0);
+            printf("\n");
+            break;
+        case DEBUG_CONTENT:
+            printf("%s\n", fmt);
+            break;
+        default:
+            break;
+    }
+}
+
+/* 调试函数：用于输出手动调试的信息（支持可变参数，类似 printf） */
+static void debug_content(const char* fmt, ...) {
+    if(get_debug_level() == 0) return;
+    
+    va_list args;
+    va_start(args, fmt);
+    
+    // 使用动态缓冲区
+    char buffer[1024];
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    
+    debug(DEBUG_CONTENT, buffer);
+    
+    va_end(args);
+}
 
 /* 报告语义错误 */
 static void report_error(int line, const char* fmt, ...) {
@@ -27,16 +153,12 @@ static void report_error(int line, const char* fmt, ...) {
     error_count++;
 }
 
-// semantic.c - 修改类型兼容性检查
-static int is_type_compatible(DataType a, DataType b) {
-    if (a == b) return 1;
-    // integer 可以隐式转换为 real
-    if (a == TYPE_INTEGER && b == TYPE_REAL) return 1;
-    // 注意：real 不能隐式转换为 integer
-    return 0;
-}
 
-// 添加赋值时的类型检查（更严格）
+
+
+
+//====================================== 工具函数 ======================================
+// 修改类型兼容性检查
 static int is_assign_compatible(DataType lhs, DataType rhs) {
     if (lhs == rhs) return 1;
     // integer 可以赋值给 real
@@ -56,8 +178,117 @@ static const char* type_name(DataType t) {
     }
 }
 
-/* 检查表达式类型（前向声明） */
-static ExprType check_expr(ASTNode* expr);
+
+
+
+//====================================== 检查语句的函数 ======================================
+/* 1. 检查单个语句 */
+static void check_statement(ASTNode* stmt) {
+    if (!stmt) return;
+    
+    switch (stmt->type) {
+        case AST_ASSIGN_STMT:// 赋值语句
+            check_assign_stmt(stmt);
+            break;
+        case AST_IF_STMT:
+            check_if_stmt(stmt);
+            check_statement(stmt->data.if_stmt.then_part);
+            if (stmt->data.if_stmt.else_part) {
+                check_statement(stmt->data.if_stmt.else_part);
+            }
+            break;
+        case AST_FOR_STMT:
+            check_for_stmt(stmt);
+            check_statement(stmt->data.for_stmt.body);
+            break;
+        case AST_WHILE_STMT: {
+            ExprType cond_type = check_expr(stmt->data.while_stmt.cond);
+            if (cond_type.type != TYPE_BOOLEAN && cond_type.type != TYPE_INTEGER) {
+                report_error(stmt->line, "While condition must be boolean or integer, got %s",
+                            type_name(cond_type.type));
+            }
+            check_statement(stmt->data.while_stmt.body);
+            break;
+        }
+        case AST_COMPOUND_STMT:
+            check_compound_stmt(stmt);
+            break;
+        case AST_READ_STMT:
+            check_read_stmt(stmt);
+            break;
+        case AST_WRITE_STMT:
+            check_write_stmt(stmt);
+            break;
+        default:
+            break;
+    }
+}
+
+/* 2. 检查赋值语句 */
+static void check_assign_stmt(ASTNode* node) {
+    /* 检查左值 */
+    if (node->data.assign.lhs->type != AST_VAR_REF) {// 左值必须是变量引用
+        report_error(node->line, "Left side of assignment must be a variable");
+        return;
+    }
+    
+    const char* lhs_name = node->data.assign.lhs->data.var_ref.name;
+    SymEntry* lhs_sym = lookup_symbol(lhs_name);
+    
+    if (!lhs_sym) {// 左值必须是已声明的变量
+        report_error(node->line, "Undeclared variable '%s'", lhs_name);
+        return;
+    }
+    
+    /* 函数名赋值（函数返回值） */
+    if (lhs_sym->kind == SYM_FUNC) {
+        /* 在函数内部给函数名赋值，标记为有返回值 */
+        lhs_sym->u.func_info.has_return = 1;
+        debug_content(lhs_name," has return value assignment\n");
+        return;
+    }
+    
+    if (lhs_sym->kind == SYM_CONST) {// 常量不能赋值
+        report_error(node->line, "Cannot assign to constant '%s'", lhs_sym->name);
+        return;
+    }
+    
+    /* 获取左值类型 */
+    DataType lhs_type = lhs_sym->type;
+    if (lhs_type == TYPE_ARRAY) {
+        lhs_type = lhs_sym->u.array_info.elem_type;
+    }
+    
+    /* 检查右值 */
+    ExprType rhs = check_expr(node->data.assign.rhs);
+    
+    /* 类型兼容性检查 */
+    if (!is_assign_compatible(lhs_type, rhs.type)) {
+        report_error(node->line, "Type mismatch: cannot assign %s to %s",
+                    type_name(rhs.type), type_name(lhs_type));
+    }
+}
+
+/* 3. 检查表达式（主函数） */
+static ExprType check_expr(ASTNode* expr) {
+    if (!expr) return (ExprType){TYPE_UNKNOWN, 0, 0};
+    
+    switch (expr->type) {
+        case AST_BINARY_EXPR:
+            return check_binary_expr(expr);
+        case AST_UNARY_EXPR:
+            return check_unary_expr(expr);
+        case AST_VAR_REF:
+            return check_var_ref(expr);
+        case AST_CALL_EXPR:
+            return check_call_expr(expr);
+        case AST_CONST_VAL:
+            return check_const_val(expr);
+        default:
+            report_error(expr->line, "Invalid expression node type %d", expr->type);
+            return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+}
 
 /* 检查二元表达式 */
 static ExprType check_binary_expr(ASTNode* node) {
@@ -67,10 +298,10 @@ static ExprType check_binary_expr(ASTNode* node) {
     
     BinaryOp op = node->data.binary.op;
     
-    /* 关系运算符返回boolean */
+    /* 关系运算符返回 boolean */
     if (op >= OP_EQ && op <= OP_GE) {
-        if (is_type_compatible(left.type, right.type) ||
-            is_type_compatible(right.type, left.type)) {
+        if (is_assign_compatible(left.type, right.type) ||
+            is_assign_compatible(right.type, left.type)) {
             result.type = TYPE_BOOLEAN;
         } else {
             report_error(node->line, "Cannot compare %s with %s",
@@ -117,11 +348,16 @@ static ExprType check_unary_expr(ASTNode* node) {
     ExprType result = {TYPE_UNKNOWN, 0, 0};
     
     if (node->data.unary.op == UNARY_NOT) {
-        if (operand.type != TYPE_BOOLEAN) {
-            report_error(node->line, "'not' operator requires boolean operand, got %s",
+        /* not 运算符可以应用于 boolean 或 integer */
+        if (operand.type == TYPE_BOOLEAN) {
+            result.type = TYPE_BOOLEAN;
+        } else if (operand.type == TYPE_INTEGER) {
+            /* 按位取反，结果仍为 integer */
+            result.type = TYPE_INTEGER;
+        } else {
+            report_error(node->line, "'not' operator requires boolean or integer operand, got %s",
                         type_name(operand.type));
         }
-        result.type = TYPE_BOOLEAN;
     } else if (node->data.unary.op == UNARY_MINUS) {
         if (operand.type != TYPE_INTEGER && operand.type != TYPE_REAL) {
             report_error(node->line, "Unary minus requires numeric operand, got %s",
@@ -132,8 +368,6 @@ static ExprType check_unary_expr(ASTNode* node) {
     
     return result;
 }
-
-
 
 /* 检查变量引用 */
 static ExprType check_var_ref(ASTNode* node) {
@@ -161,10 +395,26 @@ static ExprType check_var_ref(ASTNode* node) {
             report_error(node->line, "Array '%s' requires subscript", node->data.var_ref.name);
             return (ExprType){TYPE_UNKNOWN, 0, 0};
         }
-        ExprType index_type = check_expr(node->data.var_ref.index_expr);
-        if (index_type.type != TYPE_INTEGER) {
-            report_error(node->line, "Array subscript must be integer, got %s",
-                        type_name(index_type.type));
+/* 处理多维数组下标（可能是 AST_STMT_LIST 包含多个下标） */
+        ASTNode* index = node->data.var_ref.index_expr;
+        if (index->type == AST_STMT_LIST) {
+            /* 多维数组：检查每个下标 */
+            ASTNode* idx = index->data.stmt_list.first;
+            while (idx) {
+                ExprType index_type = check_expr(idx);
+                if (index_type.type != TYPE_INTEGER) {
+                    report_error(node->line, "Array subscript must be integer, got %s",
+                                type_name(index_type.type));
+                }
+                idx = idx->next;
+            }
+        } else {
+            /* 单维数组 */
+            ExprType index_type = check_expr(index);
+            if (index_type.type != TYPE_INTEGER) {
+                report_error(node->line, "Array subscript must be integer, got %s",
+                            type_name(index_type.type));
+            }
         }
         return (ExprType){sym->u.array_info.elem_type, 0, 0};
     } else {
@@ -172,7 +422,24 @@ static ExprType check_var_ref(ASTNode* node) {
             report_error(node->line, "Non-array '%s' used with subscript", node->data.var_ref.name);
         }
         if (sym->kind == SYM_CONST) {
-            return (ExprType){sym->type, 1, sym->u.const_value};
+            int const_val = 0;
+            switch (sym->type) {
+                case TYPE_INTEGER:
+                    const_val = sym->u.const_value.int_val;
+                    break;
+                case TYPE_REAL:
+                    const_val = (int)sym->u.const_value.real_val;
+                    break;
+                case TYPE_CHAR:
+                    const_val = sym->u.const_value.char_val;
+                    break;
+                case TYPE_BOOLEAN:
+                    const_val = sym->u.const_value.bool_val;
+                    break;
+                default:
+                    break;
+            }
+            return (ExprType){sym->type, 1, const_val};
         }
         return (ExprType){sym->type, 0, 0};
     }
@@ -189,6 +456,7 @@ static ExprType check_const_val(ASTNode* node) {
             break;
         case TOKEN_REAL_CONST:
             result.type = TYPE_REAL;
+            result.const_value = (int)node->data.const_val.real_val;
             break;
         case TOKEN_CHAR_CONST:
             result.type = TYPE_CHAR;
@@ -197,7 +465,7 @@ static ExprType check_const_val(ASTNode* node) {
         case TOKEN_TRUE:
         case TOKEN_FALSE:
             result.type = TYPE_BOOLEAN;
-            result.const_value = (node->data.const_val.token_type == TOKEN_TRUE);
+            result.const_value = (node->data.const_val.token_type == TOKEN_TRUE) ? 1 : 0;
             break;
         default:
             break;
@@ -224,27 +492,27 @@ static ExprType check_call_expr(ASTNode* node) {
     int arg_count = 0;
     ASTNode* arg = NULL;
     
-    printf("[DEBUG check_call_expr] function=%s, args_list=%p, type=%d\n", 
+    debug_content("function=%s, args_list=%p, type=%d", 
            node->data.call_expr.name, args_list, args_list ? args_list->type : -1);
     
     if (args_list) {
         if (args_list->type == AST_STMT_LIST) {
-            printf("[DEBUG] args_list is AST_STMT_LIST\n");
+            debug_content("args_list is AST_STMT_LIST");
             arg = args_list->data.stmt_list.first;
         } else {
-            printf("[DEBUG] args_list is direct expression, type=%d\n", args_list->type);
+            debug_content("args_list is direct expression, type=%d", args_list->type);
             arg = args_list;
         }
         
         while (arg) {
             arg_count++;
-            printf("[DEBUG] arg %d: type=%d\n", arg_count, arg->type);
+            debug_content("arg %d: type=%d", arg_count, arg->type);
             check_expr(arg);
             arg = arg->next;
         }
     }
     
-    printf("[DEBUG] arg_count=%d, param_count=%d\n", arg_count, sym->u.func_info.param_count);
+    debug_content("arg_count=%d, param_count=%d", arg_count, sym->u.func_info.param_count);
     
     if (arg_count != sym->u.func_info.param_count) {
         report_error(node->line, "Function '%s' expects %d argument(s), but got %d",
@@ -253,72 +521,6 @@ static ExprType check_call_expr(ASTNode* node) {
     
     /* 返回函数的返回类型 */
     return (ExprType){sym->type, 0, 0};
-}
-
-/* 检查表达式（主函数） */
-static ExprType check_expr(ASTNode* expr) {
-    if (!expr) return (ExprType){TYPE_UNKNOWN, 0, 0};
-    
-    switch (expr->type) {
-        case AST_BINARY_EXPR:
-            return check_binary_expr(expr);
-        case AST_UNARY_EXPR:
-            return check_unary_expr(expr);
-        case AST_VAR_REF:
-            return check_var_ref(expr);
-        case AST_CALL_EXPR:
-            return check_call_expr(expr);
-        case AST_CONST_VAL:
-            return check_const_val(expr);
-        default:
-            report_error(expr->line, "Invalid expression node type %d", expr->type);
-            return (ExprType){TYPE_UNKNOWN, 0, 0};
-    }
-}
-
-/* 检查赋值语句 */
-static void check_assign_stmt(ASTNode* node) {
-    /* 检查左值 */
-    if (node->data.assign.lhs->type != AST_VAR_REF) {
-        report_error(node->line, "Left side of assignment must be a variable");
-        return;
-    }
-    
-    const char* lhs_name = node->data.assign.lhs->data.var_ref.name;
-    SymEntry* lhs_sym = lookup_symbol(lhs_name);
-    
-    if (!lhs_sym) {
-        report_error(node->line, "Undeclared variable '%s'", lhs_name);
-        return;
-    }
-    
-    /* 特殊处理：如果是给函数名赋值（函数返回值） */
-    if (lhs_sym->kind == SYM_FUNC) {
-        /* 在函数内部给函数名赋值，标记为有返回值 */
-        lhs_sym->u.func_info.has_return = 1;
-        printf("[DEBUG] Function '%s' has return value assignment\n", lhs_name);
-        return;
-    }
-    
-    if (lhs_sym->kind == SYM_CONST) {
-        report_error(node->line, "Cannot assign to constant '%s'", lhs_sym->name);
-        return;
-    }
-    
-    /* 获取左值类型 */
-    DataType lhs_type = lhs_sym->type;
-    if (lhs_type == TYPE_ARRAY) {
-        lhs_type = lhs_sym->u.array_info.elem_type;
-    }
-    
-    /* 检查右值 */
-    ExprType rhs = check_expr(node->data.assign.rhs);
-    
-    /* 类型兼容性检查 */
-    if (!is_assign_compatible(lhs_type, rhs.type)) {
-        report_error(node->line, "Type mismatch: cannot assign %s to %s",
-                    type_name(rhs.type), type_name(lhs_type));
-    }
 }
 
 /* 检查if语句 */
@@ -355,9 +557,6 @@ static void check_for_stmt(ASTNode* node) {
     }
 }
 
-/* 检查语句（前向声明） */
-static void check_statement(ASTNode* stmt);
-
 /* 检查语句列表 */
 static void check_statement_list(ASTNode* list) {
     if (!list || list->type != AST_STMT_LIST) return;
@@ -372,8 +571,6 @@ static void check_compound_stmt(ASTNode* node) {
     check_statement_list(node->data.compound.stmt_list);
 }
 
-
-
 /* 检查read语句 */
 static void check_read_stmt(ASTNode* node) {
     /* read语句中的变量检查在代码生成阶段完成 */
@@ -386,95 +583,127 @@ static void check_write_stmt(ASTNode* node) {
 
 
 
-/* 检查单个语句 */
-static void check_statement(ASTNode* stmt) {
-    if (!stmt) return;
-    
-    switch (stmt->type) {
-        case AST_ASSIGN_STMT:
-            check_assign_stmt(stmt);
-            break;
-        case AST_IF_STMT:
-            check_if_stmt(stmt);
-            check_statement(stmt->data.if_stmt.then_part);
-            if (stmt->data.if_stmt.else_part) {
-                check_statement(stmt->data.if_stmt.else_part);
-            }
-            break;
-        case AST_FOR_STMT:
-            check_for_stmt(stmt);
-            check_statement(stmt->data.for_stmt.body);
-            break;
-        case AST_COMPOUND_STMT:
-            check_compound_stmt(stmt);
-            break;
-        // case AST_CALL_STMT:
-        //     check_call_stmt(stmt);
-        //     break;
-        case AST_READ_STMT:
-            check_read_stmt(stmt);
-            break;
-        case AST_WRITE_STMT:
-            check_write_stmt(stmt);
-            break;
-        default:
-            break;
-    }
-}
 
-/* 处理常量声明 */
-/* 处理常量声明 */
+//====================================== 构建符号表函数 ======================================
+/* 1. 处理常量声明 */
 static void process_const_decl(ASTNode* node) {
-    if (!node) return;
+    if (!node){
+        debug_content("No constant declaration found");
+        return;
+    }
     
     if (node->type == AST_CONST_DECL) {
-        //printf("[DEBUG] ConstDecl: %s\n", node->data.const_decl.name);
-        int value = 0;
+        debug_content("Processing constant declaration: %s", node->data.const_decl.name);
+
         if (node->data.const_decl.value && 
             node->data.const_decl.value->type == AST_CONST_VAL) {
-            value = node->data.const_decl.value->data.const_val.int_val;
+            
+            ASTNode* value_node = node->data.const_decl.value;
+            TokenType token_type = value_node->data.const_val.token_type;
+            
+            switch (token_type) {
+                case TOKEN_INTEGER_CONST: {// 整数常量
+                    int value = value_node->data.const_val.int_val;
+                    add_const_int(node->data.const_decl.name, value, node->line);
+                    debug_content("  Added integer constant: %s = %d", 
+                                  node->data.const_decl.name, value);
+                    break;
+                }
+                case TOKEN_REAL_CONST: {// 实数常量
+                    double value = value_node->data.const_val.real_val;
+                    add_const_real(node->data.const_decl.name, value, node->line);
+                    debug_content("  Added real constant: %s = %f", 
+                                  node->data.const_decl.name, value);
+                    break;
+                }
+                case TOKEN_CHAR_CONST: {// 字符常量
+                    char value = value_node->data.const_val.char_val;
+                    add_const_char(node->data.const_decl.name, value, node->line);
+                    debug_content("  Added char constant: %s = '%c'", 
+                                  node->data.const_decl.name, value);
+                    break;
+                }
+                case TOKEN_TRUE:// 布尔常量 true TODO
+                case TOKEN_FALSE: {// 布尔常量 false TODO
+                    int value = (token_type == TOKEN_TRUE) ? 1 : 0;
+                    add_const_bool(node->data.const_decl.name, value, node->line);
+                    debug_content("  Added boolean constant: %s = %s (token_type=%d)", 
+                                  node->data.const_decl.name, value ? "true" : "false", token_type);
+                    break;
+                }
+                default:// 未知常量类型
+                    debug_content("  Warning: Unknown constant type for '%s', using integer", 
+                                  node->data.const_decl.name);
+                    add_const_int(node->data.const_decl.name, 0, node->line);
+                    break;
+            }
+        }else {
+            debug_content("  Warning: Invalid constant value for '%s'", node->data.const_decl.name);
+            add_const_int(node->data.const_decl.name, 0, node->line);
         }
-        add_const(node->data.const_decl.name, value, TYPE_INTEGER, node->line);
         
-        /* 处理下一个常量声明 */
         if (node->data.const_decl.next_decl) {
             process_const_decl(node->data.const_decl.next_decl);
         }
     }
 }
 
-/* 处理变量声明 */
-/* 处理变量声明 */
+/* 2. 处理变量声明 */
 static void process_var_decl(ASTNode* node) {
-    if (!node) return;
-    
-    // 打印调试信息（确认节点类型）
-    //printf("[DEBUG] process_var_decl: node type = %d\n", node->type);
+    if (!node){
+        debug_content("No var declaration found");
+        return;
+    }
     
     if (node->type == AST_VAR_DECL) {
-        //printf("[DEBUG] var_decl: data_type = %d\n", node->data.var_decl.data_type);
-        
-        // 打印 id_list 的内容
+        // 打印 var 名称
         ASTNode* id = node->data.var_decl.id_list;
-        //printf("[DEBUG] id_list: ");
+        debug_content("id_list: ");
         while (id) {
-            printf("%s ", id->data.id_node.name);
+            debug_content(id->data.id_node.name," ");
             id = id->next;
         }
-        printf("\n");
         
         // 遍历标识符列表，添加每个变量
         id = node->data.var_decl.id_list;
         while (id) {
             if (id->type == AST_IDENTIFIER) {
-                //printf("[DEBUG] Adding variable: %s\n", id->data.id_node.name);
-                if (node->data.var_decl.data_type == TYPE_ARRAY) {
+                debug_content("Adding variable:", id->data.id_node.name);
+                if (node->data.var_decl.array_bounds != NULL) {
+                    // 处理数组声明（有 array_bounds 说明是数组）
                     ArrayInfo info = {0};
-                    info.low = 1;
-                    info.high = 10;
-                    info.elem_type = TYPE_INTEGER;
+                    
+                    // 从 array_bounds 获取数组边界
+                    if (node->data.var_decl.array_bounds) {
+                        ASTNode* bounds = node->data.var_decl.array_bounds;
+                        
+                        // 获取下界和上界
+                        ASTNode* low_expr = bounds->data.stmt_list.first;
+                        ASTNode* high_expr = bounds->data.stmt_list.last;
+                        
+                        if (low_expr && low_expr->type == AST_CONST_VAL) {
+                            info.low = low_expr->data.const_val.int_val;
+                        } else {
+                            info.low = LOW_ARRAY_BOUND; // 默认下界
+                        }
+                        
+                        if (high_expr && high_expr->type == AST_CONST_VAL) {
+                            info.high = high_expr->data.const_val.int_val;
+                        } else {
+                            info.high = HIGH_ARRAY_BOUND; // 默认上界
+                        }
+                    } else {
+                        info.low = LOW_ARRAY_BOUND;
+                        info.high = HIGH_ARRAY_BOUND;
+                    }
+                    
+                    // 数组元素类型：由 parser 模块决定，存储在 elem_type 中
+                    // 例如：array [1..10] of integer，parser 会将 elem_type 设为 TYPE_INTEGER
+                    info.elem_type = node->data.var_decl.elem_type;
+                    
                     add_array(id->data.id_node.name, &info, node->line);
                 } else {
+                    // 普通变量
                     add_var(id->data.id_node.name, node->data.var_decl.data_type, node->line);
                 }
             }
@@ -488,56 +717,47 @@ static void process_var_decl(ASTNode* node) {
     }
 }
 
-/* 处理子程序声明 */
+/* 3. 处理子程序声明 */
 static void process_subprog_decl(ASTNode* node) {
     if (!node) {
-        printf("[DEBUG] process_subprog_decl: node is NULL\n");
+        debug_content("process_subprog_decl: node is NULL");
         return;
     }
     
-    printf("[DEBUG] process_subprog_decl: node type=%d, AST_SUBPROG_DECL=%d\n", 
-           node->type, AST_SUBPROG_DECL);
-    
     if (node->type == AST_SUBPROG_DECL) {
-        printf("[DEBUG] Processing subprogram: %s (is_function=%d)\n", 
-               node->data.subprog.name, node->data.subprog.is_function);
+        debug_content("Processing subprogram:",node->data.subprog.name," (is_function=%d)", node->data.subprog.is_function);
         
         /* 添加函数/过程名到当前作用域（外层） */
         if (node->data.subprog.is_function) {
-            add_func(node->data.subprog.name, NULL, 0,
-                    node->data.subprog.return_type, node->line);
-            printf("[DEBUG] Added function: %s, return_type=%d\n", 
-                   node->data.subprog.name, node->data.subprog.return_type);
+            add_func(node->data.subprog.name, NULL, 0,node->data.subprog.return_type, node->line);
+            debug_content("  Added function: ", node->data.subprog.name);
         } else {
             add_proc(node->data.subprog.name, NULL, 0, node->line);
-            printf("[DEBUG] Added procedure: %s\n", node->data.subprog.name);
+            debug_content("  Added procedure: ", node->data.subprog.name);
         }
         
         /* 进入新作用域（函数内部） */
         enter_scope();
-        printf("[DEBUG] Entered scope level: %d\n", get_current_scope_level());
+        debug_content("  Entered scope level: ", get_current_scope_level());
         
-        /* ========== 关键修复：添加参数到符号表 ========== */
+        /* 添加参数到符号表 */
         ASTNode* param = node->data.subprog.params;
         int param_count = 0;
         
-        printf("[DEBUG process_subprog] function=%s, params=%p\n", 
-               node->data.subprog.name, param);
+        debug_content("Processing params for function: ", node->data.subprog.name);
         
         /* 遍历所有参数组 */
-        while (param) {
-            printf("[DEBUG] param node type=%d, is_var=%d, type=%d\n", 
-                   param->type, param->data.param.is_var, param->data.param.type);
+        while (param&& param->type == AST_PARAM_LIST) {
+            debug_content("param node type=",param->type," is_var=",param->data.param.is_var," type=",param->data.param.type);
             
             if (param->type == AST_PARAM_LIST) {
-                printf("[DEBUG] Processing param group: is_var=%d, type=%d\n", 
+                debug_content("  Processing param group: is_var=%d, type=%d", 
                        param->data.param.is_var, param->data.param.type);
                 
                 /* 获取参数列表中的标识符 */
                 ASTNode* id_list = param->data.param.id_list;
                 while (id_list && id_list->type == AST_IDENTIFIER) {
-                    printf("[DEBUG] Adding parameter: %s, type=%d\n", 
-                           id_list->data.id_node.name, param->data.param.type);
+                    debug_content("  Adding parameter: ",id_list->data.id_node.name ," type=", param->data.param.type);
                     
                     /* 添加参数作为变量 */
                     add_var(id_list->data.id_node.name, param->data.param.type, node->line);
@@ -546,152 +766,44 @@ static void process_subprog_decl(ASTNode* node) {
                     id_list = id_list->next;
                 }
             } else {
-                printf("[DEBUG] WARNING: param node type is not AST_PARAM_LIST (%d)\n", param->type);
+                debug_content("WARNING: param node type is not AST_PARAM_LIST :", param->type);
             }
             
             param = param->data.param.next_param;
         }
         
-        printf("[DEBUG] Total param_count for %s = %d\n", node->data.subprog.name, param_count);
+        debug_content("  Total param_count for ",node->data.subprog.name," = ", param_count);
         
         /* 更新函数/过程的参数数量 */
         SymEntry* entry = lookup_symbol(node->data.subprog.name);
         if (entry && (entry->kind == SYM_FUNC || entry->kind == SYM_PROC)) {
             entry->u.func_info.param_count = param_count;
-            printf("[DEBUG] Set param_count for %s to %d\n", node->data.subprog.name, param_count);
+            debug_content(" Set param_count for ",node->data.subprog.name," to ", param_count);
         } else {
-            printf("[DEBUG] ERROR: Could not find symbol %s\n", node->data.subprog.name);
+            debug_content("Failed to update param_count for function/procedure: ", node->data.subprog.name);
         }
+        
+        /* 处理局部变量声明 */
+        process_var_decl(node->data.subprog.var_decls);
         
         /* 检查子程序体中的语句 */
         if (node->data.subprog.body) {
             check_statement(node->data.subprog.body);
         }
         
-        /* ========== 新增：在 exit_scope() 之前打印当前作用域的符号表 ========== */
-        printf("\n========== Symbol Table for Function '%s' (Scope Level %d) ==========\n", 
-               node->data.subprog.name, get_current_scope_level());
-        printf("%-20s %-10s %-10s %s\n", "Name", "Kind", "Type", "Info");
-        printf("--------------------------------------------------------\n");
-        
-        /* 打印当前作用域的所有符号 */
-        if (sym_manager.current_scope) {
-            SymEntry* sym_entry = sym_manager.current_scope->symbols;
-            while (sym_entry) {
-                const char* kind_str = "";
-                const char* type_str = "";
-                
-                switch (sym_entry->kind) {
-                    case SYM_CONST: kind_str = "CONST"; break;
-                    case SYM_VAR: kind_str = "VAR"; break;
-                    case SYM_PROC: kind_str = "PROC"; break;
-                    case SYM_FUNC: kind_str = "FUNC"; break;
-                }
-                
-                switch (sym_entry->type) {
-                    case TYPE_INTEGER: type_str = "integer"; break;
-                    case TYPE_REAL: type_str = "real"; break;
-                    case TYPE_BOOLEAN: type_str = "boolean"; break;
-                    case TYPE_CHAR: type_str = "char"; break;
-                    case TYPE_ARRAY: type_str = "array"; break;
-                    default: type_str = "unknown"; break;
-                }
-                
-                printf("%-20s %-10s %-10s ", 
-                       sym_entry->name, kind_str, type_str);
-                
-                if (sym_entry->kind == SYM_CONST) {
-                    printf("= %d", sym_entry->u.const_value);
-                } else if (sym_entry->type == TYPE_ARRAY) {
-                    printf("[%d..%d] of %s", 
-                           sym_entry->u.array_info.low, 
-                           sym_entry->u.array_info.high,
-                           type_name(sym_entry->u.array_info.elem_type));
-                } else if (sym_entry->kind == SYM_FUNC) {
-                    printf("returns %s, %d param(s)", 
-                           type_name(sym_entry->u.func_info.return_type),
-                           sym_entry->u.func_info.param_count);
-                } else if (sym_entry->kind == SYM_PROC) {
-                    printf("%d param(s)", sym_entry->u.func_info.param_count);
-                }
-                printf("\n");
-                
-                sym_entry = sym_entry->next;
-            }
-        }
-        printf("==========================================================\n\n");
-        
-        /* 如果是函数，检查是否有返回值赋值 */
-        if (node->data.subprog.is_function) {
-            SymEntry* func_entry = lookup_symbol(node->data.subprog.name);
-            if (func_entry && !func_entry->u.func_info.has_return) {
-                /* 检查函数体中是否有对函数名的赋值 */
-                /* 这里可以添加更详细的检查 */
-            }
-        }
-        
         /* 退出作用域 */
         exit_scope();
-        printf("[DEBUG] Exited scope, back to level: %d\n", get_current_scope_level());
+        debug_content("Exited scope, back to level: ", get_current_scope_level());
         
         /* 处理下一个子程序 */
-        printf("[DEBUG] Checking next_decl: %p\n", node->data.subprog.next_decl);
         if (node->data.subprog.next_decl) {
-            printf("[DEBUG] Recursively processing next subprogram declaration\n");
+            debug_content("Recursively processing next subprogram declaration");
             process_subprog_decl(node->data.subprog.next_decl);
         } else {
-            printf("[DEBUG] No more subprogram declarations\n");
+            debug_content("No more subprogram declarations");
         }
     } else {
-        printf("[DEBUG] WARNING: node type is not AST_SUBPROG_DECL (%d)\n", node->type);
+        debug_content("WARNING: node type is not AST_SUBPROG_DECL (%d)", node->type);
     }
 }
 
-/* 主语义分析函数 */
-SemanticResult semantic_analyze(ASTNode* ast) {
-    error_count = 0;
-    
-    if (!ast) {
-        return (SemanticResult){1, 1};
-    }
-    
-    printf("\n=== Semantic Analysis Started ===\n");
-    
-    /* 打印AST用于调试 */
-    //printf("\n[DEBUG] AST Structure:\n");
-    ast_print(ast, 0);
-    printf("\n");
-    
-    /* 初始化符号表 */
-    init_symtable();
-    
-    /* 处理常量声明 */
-    if (ast->type == AST_PROGRAM) {
-        //printf("[DEBUG] Processing const declarations\n");
-        process_const_decl(ast->data.program.const_decls);
-        
-        //printf("[DEBUG] Processing var declarations\n");
-        process_var_decl(ast->data.program.var_decls);
-        
-        //printf("[DEBUG] Processing subprogram declarations\n");
-        process_subprog_decl(ast->data.program.subprog_decls);
-        
-        //printf("[DEBUG] Checking main program body\n");
-        /* 检查主程序体 */
-        check_statement(ast->data.program.body);
-    }
-    
-    /* 打印符号表 */
-    print_symtable(stdout);
-    
-    printf("=== Semantic Analysis Complete ===\n");
-    if (error_count > 0) {
-        printf("Found %d semantic error(s)\n", error_count);
-    } else {
-        printf("No semantic errors detected.\n");
-    }
-    
-    /* 注意：符号表不在这里释放，等到代码生成结束后再释放 */
-    
-    return (SemanticResult){error_count > 0, error_count};
-}

@@ -74,6 +74,7 @@ struct ASTNode {
         struct {
             ASTNode *id_list;       /* AST_IDENTIFIER链表 */
             DataType data_type;
+            DataType elem_type;     /* 数组元素类型 */
             ASTNode *array_bounds;  /* 数组下标范围表达式链表 */
             ASTNode *next_decl;
         } var_decl;
@@ -91,6 +92,8 @@ struct ASTNode {
             char name[64];
             ASTNode *params;
             DataType return_type;
+            ASTNode *const_decls;   /* 局部常量声明 */
+            ASTNode *var_decls;     /* 局部变量声明 */
             ASTNode *body;
             ASTNode *next_decl;
         } subprog;
@@ -120,6 +123,12 @@ struct ASTNode {
             ASTNode *end_expr;
             ASTNode *body;
         } for_stmt;
+
+        /* while */
+        struct {
+            ASTNode *cond;
+            ASTNode *body;
+        } while_stmt;
 
         /* 二元表达式 */
         struct {
