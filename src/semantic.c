@@ -37,7 +37,6 @@ static void check_for_stmt(ASTNode* node);
 static void check_compound_stmt(ASTNode* node);
 static void check_read_stmt(ASTNode* node);
 static void check_write_stmt(ASTNode* node);
-static void check_statement_list(ASTNode* list);
 static ExprType check_binary_expr(ASTNode* node);
 static ExprType check_unary_expr(ASTNode* node);
 static ExprType check_var_ref(ASTNode* node);
@@ -183,6 +182,15 @@ static const char* type_name(DataType t) {
 
 
 //====================================== 检查语句的函数 ======================================
+/* 检查语句列表（放在 check_statement 之前，避免 C99 下隐式声明与 static 冲突） */
+static void check_statement_list(ASTNode* list) {
+    if (!list || list->type != AST_STMT_LIST) return;
+
+    for (ASTNode* stmt = list->data.stmt_list.first; stmt; stmt = stmt->next) {
+        check_statement(stmt);
+    }
+}
+
 /* 1. 检查单个语句 */
 static void check_statement(ASTNode* stmt) {
     if (!stmt) return;
@@ -582,15 +590,6 @@ static void check_for_stmt(ASTNode* node) {
     if (end.type != TYPE_INTEGER) {
         report_error(node->line, "For loop end value must be integer, got %s",
                     type_name(end.type));
-    }
-}
-
-/* 检查语句列表 */
-static void check_statement_list(ASTNode* list) {
-    if (!list || list->type != AST_STMT_LIST) return;
-    
-    for (ASTNode* stmt = list->data.stmt_list.first; stmt; stmt = stmt->next) {
-        check_statement(stmt);
     }
 }
 
