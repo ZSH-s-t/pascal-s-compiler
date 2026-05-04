@@ -33,7 +33,7 @@ void codegen_indent(CodeGenContext *ctx) {
 const char* get_c_type(DataType type) {
     switch (type) {
         case TYPE_INTEGER: return "int";
-        case TYPE_REAL: return "double";
+        case TYPE_REAL: return "long double";
         case TYPE_BOOLEAN: return "int";
         case TYPE_CHAR: return "char";
         default: return "int";
@@ -59,6 +59,25 @@ const char* get_c_operator(BinaryOp op) {
         case OP_GE: return ">=";
         default: return "?";
     }
+}
+
+/* 无对应子程序声明时视为 C 数学库；与 long double 实型搭配用 *l 更接近标答（如 DCT 中 cos/sin） */
+static const char *pascc_built_math_cl(const char *name) {
+    if (!name)
+        return NULL;
+    if (pascc_ident_equal(name, "sin") == 0) return "sinl";
+    if (pascc_ident_equal(name, "cos") == 0) return "cosl";
+    if (pascc_ident_equal(name, "tan") == 0) return "tanl";
+    if (pascc_ident_equal(name, "sqrt") == 0) return "sqrtl";
+    if (pascc_ident_equal(name, "exp") == 0) return "expl";
+    if (pascc_ident_equal(name, "ln") == 0) return "logl";
+    if (pascc_ident_equal(name, "fabs") == 0) return "fabsl";
+    if (pascc_ident_equal(name, "floor") == 0) return "floorl";
+    if (pascc_ident_equal(name, "ceil") == 0) return "ceill";
+    if (pascc_ident_equal(name, "pow") == 0) return "powl";
+    if (pascc_ident_equal(name, "arctan") == 0) return "atanl";
+    if (pascc_ident_equal(name, "atan2") == 0) return "atan2l";
+    return NULL;
 }
 
 /* 前向声明 */
@@ -241,8 +260,9 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                     fprintf(ctx->output, "%d", expr->data.const_val.int_val);
                     break;
                 case TOKEN_REAL_CONST:
-                    /* 源码字面量需足够精度，避免 #define PI 等被截断后运算与标答不一致 */
-                    fprintf(ctx->output, "%.17g", expr->data.const_val.real_val);
+                    /* long double 字面量后缀 L，提高与 FPC extended 标答的一致性 */
+                    fprintf(ctx->output, "%.21g", expr->data.const_val.real_val);
+                    fprintf(ctx->output, "L");
                     break;
                 case TOKEN_CHAR_CONST:
                     fprintf(ctx->output, "'%c'", expr->data.const_val.char_val);
@@ -315,9 +335,9 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
         case AST_BINARY_EXPR:
             /* Pascal '/' 恒为实型除法；C 在两侧为整型时 '/' 为整除，会偏离标答 */
             if (expr->data.binary.op == OP_DIV) {
-                fprintf(ctx->output, "(((double)(");
+                fprintf(ctx->output, "(((long double)(");
                 codegen_expression(ctx, expr->data.binary.left);
-                fprintf(ctx->output, ")) / ((double)(");
+                fprintf(ctx->output, ")) / ((long double)(");
                 codegen_expression(ctx, expr->data.binary.right);
                 fprintf(ctx->output, ")))");
             } else {
@@ -348,8 +368,10 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
         case AST_CALL_EXPR: {
             ASTNode *callee = find_subprog_decl(ctx->subprog_decl_list,
                                                   expr->data.call_expr.name);
-            const char *callee_cname = callee ? callee->data.subprog.name
-                                               : expr->data.call_expr.name;
+            const char *ext_math = callee ? NULL : pascc_built_math_cl(expr->data.call_expr.name);
+            const char *callee_cname =
+                callee ? callee->data.subprog.name
+                       : (ext_math ? ext_math : expr->data.call_expr.name);
             fprintf(ctx->output, "%s(", callee_cname);
             if (callee && callee->type == AST_SUBPROG_DECL) {
                 codegen_call_args_with_params(ctx, expr->data.call_expr.args,
@@ -570,7 +592,7 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
                     const char *format = "";
                     switch (var_type) {
                         case TYPE_INTEGER: format = "%d"; break;
-                        case TYPE_REAL: format = "%lf"; break;
+                        case TYPE_REAL: format = "%Lf"; break;
                         case TYPE_CHAR: format = " %c"; break;
                         default: format = "%d"; break;
                     }
@@ -620,7 +642,7 @@ static void codegen_write_stmt(CodeGenContext *ctx, ASTNode *node) {
             const char *format = "";
             switch (expr_type) {
                 case TYPE_INTEGER: format = "%d"; break;
-                case TYPE_REAL: format = "%.6f"; break;
+                case TYPE_REAL: format = "%.6Lf"; break;
                 case TYPE_CHAR: format = "%c"; break;
                 case TYPE_BOOLEAN: format = "%d"; break;
                 default: format = "%d"; break;
@@ -695,7 +717,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                             const char *format = "";
                             switch (expr_type) {
                                 case TYPE_INTEGER: format = "%d"; break;
-                                case TYPE_REAL: format = "%.6f"; break;
+                                case TYPE_REAL: format = "%.6Lf"; break;
                                 case TYPE_CHAR: format = "%c"; break;
                                 case TYPE_BOOLEAN: format = "%d"; break;
                                 default: format = "%d"; break;
@@ -711,7 +733,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                         const char *format = "";
                         switch (expr_type) {
                             case TYPE_INTEGER: format = "%d"; break;
-                            case TYPE_REAL: format = "%.6f"; break;
+                            case TYPE_REAL: format = "%.6Lf"; break;
                             case TYPE_CHAR: format = "%c"; break;
                             case TYPE_BOOLEAN: format = "%d"; break;
                             default: format = "%d"; break;
