@@ -73,10 +73,11 @@ typedef struct {
     int found;
     DataType type;
     const char *cname; /* 声明中的拼写，供 C 输出 */
+    int is_var_param; /* 1 表示来自形参表且为 var 形参 */
 } PasDeclInfo;
 
 static PasDeclInfo lookup_decl_in_subprog(const ASTNode *sub, const char *name) {
-    PasDeclInfo d = {0, TYPE_UNKNOWN, NULL};
+    PasDeclInfo d = {0, TYPE_UNKNOWN, NULL, 0};
     if (!name || !sub || sub->type != AST_SUBPROG_DECL)
         return d;
     ASTNode *param = sub->data.subprog.params;
@@ -87,13 +88,14 @@ static PasDeclInfo lookup_decl_in_subprog(const ASTNode *sub, const char *name) 
                 d.found = 1;
                 d.type = param->data.param.type;
                 d.cname = id->data.id_node.name;
+                d.is_var_param = param->data.param.is_var ? 1 : 0;
                 return d;
             }
             id = id->next;
         }
         param = param->data.param.next_param;
     }
-        for (ASTNode *vd = sub->data.subprog.var_decls; vd && vd->type == AST_VAR_DECL;
+    for (ASTNode *vd = sub->data.subprog.var_decls; vd && vd->type == AST_VAR_DECL;
          vd = vd->data.var_decl.next_decl) {
         ASTNode *id = vd->data.var_decl.id_list;
         while (id && id->type == AST_IDENTIFIER) {
@@ -103,6 +105,7 @@ static PasDeclInfo lookup_decl_in_subprog(const ASTNode *sub, const char *name) 
                 if (d.type == TYPE_ARRAY)
                     d.type = vd->data.var_decl.elem_type;
                 d.cname = id->data.id_node.name;
+                d.is_var_param = 0;
                 return d;
             }
             id = id->next;
@@ -256,17 +259,25 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             
         case AST_VAR_REF: {
             const char *vname = expr->data.var_ref.name;
+            PasDeclInfo di = {0};
+            if (ctx->current_subprog)
+                di = lookup_decl_in_subprog(ctx->current_subprog, vname);
+
             SymEntry *sym = lookup_symbol(vname);
             const char *cid = (sym && sym->name[0]) ? sym->name : vname;
-            if (!sym && ctx->current_subprog) {
-                PasDeclInfo di = lookup_decl_in_subprog(ctx->current_subprog, vname);
-                if (di.found && di.cname)
-                    cid = di.cname;
-            }
-            /* 函数体内对函数名赋值：指向隐式返回值变量 */
-            if (ctx->current_function && ctx->current_subprog &&
-                ctx->current_subprog->type == AST_SUBPROG_DECL &&
-                pascc_ident_equal(vname, ctx->current_subprog->data.subprog.name) == 0) {
+
+            /* 子程序内形参/局部与全局同名时，必须先按 AST 绑定，否则会误用全局符号 */
+            if (di.found && di.cname) {
+                cid = di.cname;
+                if (di.is_var_param)
+                    fprintf(ctx->output, "(*%s)", cid);
+                else
+                    fprintf(ctx->output, "%s", cid);
+            } else if (ctx->current_function && ctx->current_subprog &&
+                       ctx->current_subprog->type == AST_SUBPROG_DECL &&
+                       pascc_ident_equal(vname, ctx->current_subprog->data.subprog.name) ==
+                           0) {
+                /* 函数体内对函数名：隐式返回值变量 */
                 fprintf(ctx->output, "%s_result",
                         ctx->current_subprog->data.subprog.name);
             } else if (is_var_formal_param(ctx, vname)) {
@@ -439,18 +450,18 @@ static DataType get_expr_type(const CodeGenContext *ctx, ASTNode *expr) {
                 default: return TYPE_INTEGER;
             }
         case AST_VAR_REF: {
+            PasDeclInfo di = {0};
+            if (ctx && ctx->current_subprog)
+                di = lookup_decl_in_subprog(ctx->current_subprog,
+                                            expr->data.var_ref.name);
+            if (di.found)
+                return di.type;
             SymEntry *sym = lookup_symbol(expr->data.var_ref.name);
             if (sym) {
                 if (sym->type == TYPE_ARRAY) {
                     return sym->u.array_info.elem_type;
                 }
                 return sym->type;
-            }
-            if (ctx && ctx->current_subprog) {
-                PasDeclInfo di = lookup_decl_in_subprog(ctx->current_subprog,
-                                                         expr->data.var_ref.name);
-                if (di.found)
-                    return di.type;
             }
             return TYPE_INTEGER;
         }
@@ -505,23 +516,35 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
         
         /* 根据变量类型生成不同的scanf格式 */
         if (var->type == AST_VAR_REF) {
-            SymEntry *sym = lookup_symbol(var->data.var_ref.name);
-            PasDeclInfo di = {0, TYPE_UNKNOWN, NULL};
-            if (!sym && ctx->current_subprog)
-                di = lookup_decl_in_subprog(ctx->current_subprog, var->data.var_ref.name);
+            const char *rname = var->data.var_ref.name;
+            SymEntry *sym = lookup_symbol(rname);
+            PasDeclInfo di = {0};
+            if (ctx->current_subprog)
+                di = lookup_decl_in_subprog(ctx->current_subprog, rname);
 
-            if (sym || di.found) {
+            const int use_di = di.found;
+            const int read_func_result =
+                !var->data.var_ref.index_expr && ctx->current_function &&
+                ctx->current_subprog &&
+                ctx->current_subprog->type == AST_SUBPROG_DECL &&
+                ctx->current_subprog->data.subprog.is_function &&
+                pascc_ident_equal(rname, ctx->current_function) == 0 && !use_di;
+
+            if (use_di || sym || read_func_result) {
                 DataType var_type;
                 const char *vname_c;
 
-                if (sym) {
+                if (use_di) {
+                    var_type = di.type;
+                    vname_c = di.cname ? di.cname : rname;
+                } else if (read_func_result) {
+                    var_type = ctx->current_subprog->data.subprog.return_type;
+                    vname_c = ctx->current_subprog->data.subprog.name;
+                } else {
                     var_type = sym->type;
                     if (var_type == TYPE_ARRAY)
                         var_type = sym->u.array_info.elem_type;
-                    vname_c = (sym->name[0]) ? sym->name : var->data.var_ref.name;
-                } else {
-                    var_type = di.type;
-                    vname_c = di.cname ? di.cname : var->data.var_ref.name;
+                    vname_c = (sym->name[0]) ? sym->name : rname;
                 }
 
                 const char *format = "";
@@ -532,16 +555,13 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
                     default: format = "%d"; break;
                 }
 
-                if (!var->data.var_ref.index_expr && ctx->current_function &&
-                    ctx->current_subprog &&
-                    ctx->current_subprog->type == AST_SUBPROG_DECL &&
-                    ctx->current_subprog->data.subprog.is_function &&
-                    pascc_ident_equal(var->data.var_ref.name, ctx->current_function) == 0) {
+                if (read_func_result) {
                     fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n", format,
                             ctx->current_subprog->data.subprog.name);
                 } else {
                     fprintf(ctx->output, "scanf(\"%s\", ", format);
-                    if (is_var_formal_param(ctx, var->data.var_ref.name) &&
+                    if (((use_di && di.is_var_param) ||
+                         (!use_di && is_var_formal_param(ctx, rname))) &&
                         !var->data.var_ref.index_expr) {
                         fprintf(ctx->output, "%s", vname_c);
                     } else if (var->data.var_ref.index_expr) {
