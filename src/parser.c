@@ -102,7 +102,8 @@ ASTNode *parse_program(void) {
         return NULL;
     }
     ASTNode *prog = ast_new_node(AST_PROGRAM, line);
-    strcpy(prog->data.program.prog_name, cur_token.value.str_val);
+    strncpy(prog->data.program.prog_name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+    prog->data.program.prog_name[PASCC_IDENT_LEN - 1] = '\0';
     advance();
 
     /* 可选的 (idlist) */
@@ -136,7 +137,8 @@ static ASTNode *parse_const_declarations(void) {
     while (cur_token.type == TOKEN_IDENTIFIER) {
         int line = cur_token.line;
         ASTNode *decl = ast_new_node(AST_CONST_DECL, line);
-        strcpy(decl->data.const_decl.name, cur_token.value.str_val);
+        strncpy(decl->data.const_decl.name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+        decl->data.const_decl.name[PASCC_IDENT_LEN - 1] = '\0';
         advance();
         expect(TOKEN_EQ);
         decl->data.const_decl.value = parse_const_value();
@@ -310,7 +312,8 @@ static ASTNode *parse_subprogram_declarations(void) {
             syntax_error(cur_token.line, "Expected subprogram name");
             return head;
         }
-        strcpy(sub->data.subprog.name, cur_token.value.str_val);
+        strncpy(sub->data.subprog.name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+        sub->data.subprog.name[PASCC_IDENT_LEN - 1] = '\0';
         advance();
 
         /* 参数列表 */
@@ -396,8 +399,9 @@ static ASTNode *parse_statement(void) {
     switch (cur_token.type) {
         case TOKEN_IDENTIFIER: {
             /* cur_token 已经是标识符 */
-            char name[64];
-            strcpy(name, cur_token.value.str_val);
+            char name[PASCC_IDENT_LEN];
+            strncpy(name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+            name[PASCC_IDENT_LEN - 1] = '\0';
             int line = cur_token.line;
             advance(); /* 移到标识符后的 token */
 
@@ -441,7 +445,8 @@ static ASTNode *parse_statement(void) {
             } else {
                 /* 过程调用（或无参数函数调用）*/
                 ASTNode *call = ast_new_node(AST_CALL_STMT, line);
-                strcpy(call->data.call_stmt.name, name);
+                strncpy(call->data.call_stmt.name, name, PASCC_IDENT_LEN - 1);
+                call->data.call_stmt.name[PASCC_IDENT_LEN - 1] = '\0';
                 call->data.call_stmt.args = NULL;
                 
                 if (cur_token.type == TOKEN_LPAREN) {
@@ -477,7 +482,8 @@ static ASTNode *parse_statement(void) {
                 syntax_error(line, "Expected loop variable");
                 return NULL;
             }
-            strcpy(node->data.for_stmt.var_name, cur_token.value.str_val);
+            strncpy(node->data.for_stmt.var_name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+            node->data.for_stmt.var_name[PASCC_IDENT_LEN - 1] = '\0';
             advance();
             expect(TOKEN_ASSIGN);
             node->data.for_stmt.start_expr = parse_expression();
@@ -562,8 +568,9 @@ static ASTNode *parse_variable(void) {
         syntax_error(cur_token.line, "Expected variable");
         return NULL;
     }
-    char name[64];
-    strcpy(name, cur_token.value.str_val);
+    char name[PASCC_IDENT_LEN];
+    strncpy(name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+    name[PASCC_IDENT_LEN - 1] = '\0';
     int line = cur_token.line;
     advance();
     ASTNode *index = NULL;
@@ -657,8 +664,9 @@ static ASTNode *parse_factor(void) {
     int line = cur_token.line;
     switch (cur_token.type) {
         case TOKEN_IDENTIFIER: {
-            char name[64];
-            strcpy(name, cur_token.value.str_val);
+            char name[PASCC_IDENT_LEN];
+            strncpy(name, cur_token.value.str_val, PASCC_IDENT_LEN - 1);
+            name[PASCC_IDENT_LEN - 1] = '\0';
             advance();
             if (cur_token.type == TOKEN_LPAREN) {
                 /* 函数调用 */

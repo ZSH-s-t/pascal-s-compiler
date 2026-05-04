@@ -30,7 +30,7 @@ typedef struct {
 
 /* 参数信息 */
 typedef struct {
-    char name[64];
+    char name[PASCC_IDENT_LEN];
     DataType type;
     int is_var;         // 是否为var参数（引用传递）
 } ParamInfo;
@@ -45,7 +45,7 @@ typedef struct {
 
 /* 符号表条目 */
 typedef struct SymEntry {
-    char name[128];
+    char name[PASCC_IDENT_LEN];
     SymKind kind;
     DataType type;
     int scope_level;

@@ -8,6 +8,9 @@
 
 #include "token.h"
 
+/* 与词法 str_val 一致，避免超长标识符截断/崩溃 */
+#define PASCC_IDENT_LEN 256
+
 /* AST节点类型 */
 typedef enum {
     AST_PROGRAM,        /* 程序根 */
@@ -63,7 +66,7 @@ struct ASTNode {
     union {
         /* 程序 */
         struct {
-            char prog_name[64];
+            char prog_name[PASCC_IDENT_LEN];
             ASTNode *const_decls;
             ASTNode *var_decls;
             ASTNode *subprog_decls;
@@ -81,7 +84,7 @@ struct ASTNode {
 
         /* 常量声明 */
         struct {
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *value;
             ASTNode *next_decl;
         } const_decl;
@@ -89,7 +92,7 @@ struct ASTNode {
         /* 子程序声明 */
         struct {
             int is_function;
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *params;
             DataType return_type;
             ASTNode *const_decls;   /* 局部常量声明 */
@@ -118,7 +121,7 @@ struct ASTNode {
 
         /* for */
         struct {
-            char var_name[64];
+            char var_name[PASCC_IDENT_LEN];
             ASTNode *start_expr;
             ASTNode *end_expr;
             ASTNode *body;
@@ -145,13 +148,13 @@ struct ASTNode {
 
         /* 变量引用 */
         struct {
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *index_expr;
         } var_ref;
 
         /* 函数调用表达式 */
         struct {
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *args;  /* 参数列表 */
         } call_expr;
 
@@ -174,7 +177,7 @@ struct ASTNode {
 
         /* 标识符链表节点 */
         struct {
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *next;
         } id_node;
 
@@ -199,7 +202,7 @@ struct ASTNode {
 
         /* 过程调用语句 */
         struct {
-            char name[64];
+            char name[PASCC_IDENT_LEN];
             ASTNode *args;      /* 参数列表 */
         } call_stmt;
     } data;

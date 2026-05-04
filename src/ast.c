@@ -19,8 +19,8 @@ ASTNode *ast_new_node(ASTNodeType type, int line) {
 /* 标识符节点（用于idlist） */
 ASTNode *ast_new_identifier(const char *name, int line) {
     ASTNode *node = ast_new_node(AST_IDENTIFIER, line);
-    strncpy(node->data.id_node.name, name, 63);
-    node->data.id_node.name[63] = '\0';
+    strncpy(node->data.id_node.name, name, PASCC_IDENT_LEN - 1);
+    node->data.id_node.name[PASCC_IDENT_LEN - 1] = '\0';
     node->data.id_node.next = NULL;
     return node;
 }
@@ -74,8 +74,8 @@ ASTNode *ast_new_unary_expr(UnaryOp op, ASTNode *operand, int line) {
 /* 变量引用 */
 ASTNode *ast_new_var_ref(const char *name, ASTNode *index, int line) {
     ASTNode *node = ast_new_node(AST_VAR_REF, line);
-    strncpy(node->data.var_ref.name, name, 63);
-    node->data.var_ref.name[63] = '\0';
+    strncpy(node->data.var_ref.name, name, PASCC_IDENT_LEN - 1);
+    node->data.var_ref.name[PASCC_IDENT_LEN - 1] = '\0';
     node->data.var_ref.index_expr = index;
     return node;
 }
@@ -83,8 +83,8 @@ ASTNode *ast_new_var_ref(const char *name, ASTNode *index, int line) {
 /* 函数调用表达式 */
 ASTNode *ast_new_call_expr(const char *name, ASTNode *args, int line) {
     ASTNode *node = ast_new_node(AST_CALL_EXPR, line);
-    strncpy(node->data.call_expr.name, name, 63);
-    node->data.call_expr.name[63] = '\0';
+    strncpy(node->data.call_expr.name, name, PASCC_IDENT_LEN - 1);
+    node->data.call_expr.name[PASCC_IDENT_LEN - 1] = '\0';
     node->data.call_expr.args = args;
     return node;
 }

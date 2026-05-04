@@ -18,6 +18,8 @@ void codegen_init(CodeGenContext *ctx, FILE *output) {
     ctx->temp_var_count = 0;
     ctx->label_count = 0;
     ctx->current_function = NULL;
+    ctx->current_subprog = NULL;
+    ctx->subprog_decl_list = NULL;
 }
 
 /* 输出缩进 */
@@ -64,6 +66,114 @@ static void codegen_const_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_var_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_subprog_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_stmt_list(CodeGenContext *ctx, ASTNode *list);
+static DataType get_expr_type(ASTNode *expr);
+
+static ASTNode *find_subprog_decl(ASTNode *head, const char *name) {
+    ASTNode *n = head;
+    while (n && n->type == AST_SUBPROG_DECL) {
+        if (strcmp(n->data.subprog.name, name) == 0)
+            return n;
+        n = n->data.subprog.next_decl;
+    }
+    return NULL;
+}
+
+static int is_var_formal_param(const CodeGenContext *ctx, const char *name) {
+    const ASTNode *sub = ctx->current_subprog;
+    if (!name || !sub || sub->type != AST_SUBPROG_DECL)
+        return 0;
+    ASTNode *param = sub->data.subprog.params;
+    while (param && param->type == AST_PARAM_LIST) {
+        if (param->data.param.is_var) {
+            ASTNode *id = param->data.param.id_list;
+            while (id && id->type == AST_IDENTIFIER) {
+                if (strcmp(id->data.id_node.name, name) == 0)
+                    return 1;
+                id = id->next;
+            }
+        }
+        param = param->data.param.next_param;
+    }
+    return 0;
+}
+
+/* var 形参对应的实参：已是指针则传名，否则传 &lvalue */
+static void codegen_actual_for_var_formal(CodeGenContext *ctx, ASTNode *arg) {
+    if (arg && arg->type == AST_VAR_REF) {
+        const char *v = arg->data.var_ref.name;
+        if (arg->data.var_ref.index_expr) {
+            fprintf(ctx->output, "&(");
+            codegen_expression(ctx, arg);
+            fprintf(ctx->output, ")");
+            return;
+        }
+        if (is_var_formal_param(ctx, v))
+            fprintf(ctx->output, "%s", v);
+        else
+            fprintf(ctx->output, "&%s", v);
+        return;
+    }
+    fprintf(ctx->output, "&(");
+    codegen_expression(ctx, arg);
+    fprintf(ctx->output, ")");
+}
+
+typedef struct {
+    ASTNode *param;
+    ASTNode *id;
+} FormalWalk;
+
+static void formal_walk_init(FormalWalk *w, ASTNode *param_chain) {
+    w->param = param_chain;
+    w->id = (param_chain && param_chain->type == AST_PARAM_LIST)
+                ? param_chain->data.param.id_list
+                : NULL;
+}
+
+static int formal_walk_is_var(const FormalWalk *w) {
+    return w->param && w->param->type == AST_PARAM_LIST && w->param->data.param.is_var;
+}
+
+static void formal_walk_advance(FormalWalk *w) {
+    if (!w->param) return;
+    if (w->id)
+        w->id = w->id->next;
+    if (!w->id) {
+        w->param = w->param->data.param.next_param;
+        w->id = (w->param && w->param->type == AST_PARAM_LIST)
+                    ? w->param->data.param.id_list
+                    : NULL;
+    }
+}
+
+static void codegen_call_args_with_params(CodeGenContext *ctx, ASTNode *args,
+                                          ASTNode *param_chain) {
+    FormalWalk fw;
+    formal_walk_init(&fw, param_chain);
+    int first = 1;
+    if (!args)
+        return;
+    if (args->type == AST_STMT_LIST) {
+        ASTNode *arg = args->data.stmt_list.first;
+        while (arg) {
+            if (!first)
+                fprintf(ctx->output, ", ");
+            if (formal_walk_is_var(&fw))
+                codegen_actual_for_var_formal(ctx, arg);
+            else
+                codegen_expression(ctx, arg);
+            first = 0;
+            formal_walk_advance(&fw);
+            arg = arg->next;
+        }
+    } else {
+        if (formal_walk_is_var(&fw))
+            codegen_actual_for_var_formal(ctx, args);
+        else
+            codegen_expression(ctx, args);
+        formal_walk_advance(&fw);
+    }
+}
 
 /* 生成表达式 */
 void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
@@ -92,13 +202,22 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             }
             break;
             
-        case AST_VAR_REF:
-            /* 如果是当前函数名，添加_result后缀 */
-            if (ctx->current_function && 
-                strcmp(expr->data.var_ref.name, ctx->current_function) == 0) {
-                fprintf(ctx->output, "%s_result", expr->data.var_ref.name);
+        case AST_VAR_REF: {
+            const char *vname = expr->data.var_ref.name;
+            /* 函数体内对函数名赋值：指向隐式返回值变量 */
+            if (ctx->current_function &&
+                strcmp(vname, ctx->current_function) == 0) {
+                fprintf(ctx->output, "%s_result", vname);
+            } else if (is_var_formal_param(ctx, vname)) {
+                fprintf(ctx->output, "(*%s)", vname);
             } else {
-                fprintf(ctx->output, "%s", expr->data.var_ref.name);
+                fprintf(ctx->output, "%s", vname);
+                /* 无参函数在表达式中必须按调用生成，否则在 C 中会退化为函数指针 */
+                SymEntry *sym = lookup_symbol(vname);
+                if (sym && sym->kind == SYM_FUNC &&
+                    sym->u.func_info.param_count == 0) {
+                    fprintf(ctx->output, "()");
+                }
             }
             if (expr->data.var_ref.index_expr) {
                 fprintf(ctx->output, "[");
@@ -119,6 +238,7 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                 fprintf(ctx->output, "]");
             }
             break;
+        }
             
         case AST_BINARY_EXPR:
             fprintf(ctx->output, "(");
@@ -130,7 +250,12 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             
         case AST_UNARY_EXPR:
             if (expr->data.unary.op == UNARY_NOT) {
-                fprintf(ctx->output, "!");
+                /* 整数/非布尔：Pascal not 为按位取反；布尔：逻辑非 */
+                if (get_expr_type(expr->data.unary.operand) == TYPE_BOOLEAN) {
+                    fprintf(ctx->output, "!");
+                } else {
+                    fprintf(ctx->output, "~");
+                }
             } else if (expr->data.unary.op == UNARY_MINUS) {
                 fprintf(ctx->output, "-");
             }
@@ -139,9 +264,14 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             fprintf(ctx->output, ")");
             break;
             
-        case AST_CALL_EXPR:
+        case AST_CALL_EXPR: {
             fprintf(ctx->output, "%s(", expr->data.call_expr.name);
-            if (expr->data.call_expr.args) {
+            ASTNode *callee = find_subprog_decl(ctx->subprog_decl_list,
+                                                  expr->data.call_expr.name);
+            if (callee && callee->type == AST_SUBPROG_DECL) {
+                codegen_call_args_with_params(ctx, expr->data.call_expr.args,
+                                              callee->data.subprog.params);
+            } else if (expr->data.call_expr.args) {
                 ASTNode *args = expr->data.call_expr.args;
                 if (args->type == AST_STMT_LIST) {
                     ASTNode *arg = args->data.stmt_list.first;
@@ -158,6 +288,7 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             }
             fprintf(ctx->output, ")");
             break;
+        }
             
         default:
             break;
@@ -269,7 +400,10 @@ static DataType get_expr_type(ASTNode *expr) {
             }
         case AST_UNARY_EXPR:
             if (expr->data.unary.op == UNARY_NOT) {
-                return TYPE_BOOLEAN;
+                if (get_expr_type(expr->data.unary.operand) == TYPE_BOOLEAN) {
+                    return TYPE_BOOLEAN;
+                }
+                return TYPE_INTEGER;
             }
             return get_expr_type(expr->data.unary.operand);
         default:
@@ -306,8 +440,17 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
                     default: format = "%d"; break;
                 }
                 
-                fprintf(ctx->output, "scanf(\"%s\", &", format);
-                codegen_expression(ctx, var);
+                fprintf(ctx->output, "scanf(\"%s\", ", format);
+                if (is_var_formal_param(ctx, var->data.var_ref.name) &&
+                    !var->data.var_ref.index_expr) {
+                    fprintf(ctx->output, "%s", var->data.var_ref.name);
+                } else if (var->data.var_ref.index_expr) {
+                    fprintf(ctx->output, "&(");
+                    codegen_expression(ctx, var);
+                    fprintf(ctx->output, ")");
+                } else {
+                    fprintf(ctx->output, "&%s", var->data.var_ref.name);
+                }
                 fprintf(ctx->output, ");\n");
             }
         }
@@ -431,7 +574,12 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
             } else {
                 /* 普通过程调用 */
                 fprintf(ctx->output, "%s(", stmt->data.call_stmt.name);
-                if (stmt->data.call_stmt.args) {
+                ASTNode *callee = find_subprog_decl(ctx->subprog_decl_list,
+                                                    stmt->data.call_stmt.name);
+                if (callee && callee->type == AST_SUBPROG_DECL) {
+                    codegen_call_args_with_params(ctx, stmt->data.call_stmt.args,
+                                                  callee->data.subprog.params);
+                } else if (stmt->data.call_stmt.args) {
                     ASTNode *args = stmt->data.call_stmt.args;
                     if (args->type == AST_STMT_LIST) {
                         ASTNode *arg = args->data.stmt_list.first;
@@ -573,6 +721,9 @@ static void codegen_subprog_decls(CodeGenContext *ctx, ASTNode *node) {
         /* 函数体 */
         ctx->indent_level++;
         
+        const ASTNode *prev_sub = ctx->current_subprog;
+        ctx->current_subprog = node;
+        
         /* 设置当前函数名 */
         const char *prev_function = ctx->current_function;
         if (node->data.subprog.is_function) {
@@ -598,8 +749,9 @@ static void codegen_subprog_decls(CodeGenContext *ctx, ASTNode *node) {
             fprintf(ctx->output, "return %s_result;\n", node->data.subprog.name);
         }
         
-        /* 恢复之前的函数名 */
+        /* 恢复之前的函数名与 subprog 上下文 */
         ctx->current_function = prev_function;
+        ctx->current_subprog = prev_sub;
         
         ctx->indent_level--;
         fprintf(ctx->output, "}\n");
@@ -632,28 +784,34 @@ int codegen_program(ASTNode *ast, FILE *output) {
     
     CodeGenContext ctx;
     codegen_init(&ctx, output);
+    ctx.subprog_decl_list = ast->data.program.subprog_decls;
     
     /* 生成头文件包含 */
     fprintf(output, "#include <stdio.h>\n");
     fprintf(output, "#include <stdlib.h>\n");
     fprintf(output, "#include <math.h>\n\n");
     
-    /* 生成常量和子程序声明 */
-    codegen_declarations(&ctx, 
-                        ast->data.program.const_decls,
-                        NULL,
-                        ast->data.program.subprog_decls);
+    /* 常量 */
+    if (ast->data.program.const_decls) {
+        codegen_const_decls(&ctx, ast->data.program.const_decls);
+        fprintf(output, "\n");
+    }
     
-    /* 生成main函数 */
-    fprintf(output, "\nint main(void) {\n");
-    ctx.indent_level = 1;
-    
-    /* 生成变量声明 */
+    /* Pascal 程序级 var 对应 C 文件作用域全局变量，供子程序/函数访问 */
+    ctx.indent_level = 0;
     codegen_var_decls(&ctx, ast->data.program.var_decls);
-    
     if (ast->data.program.var_decls) {
         fprintf(output, "\n");
     }
+    
+    /* 子程序（可读写上述全局量） */
+    if (ast->data.program.subprog_decls) {
+        codegen_subprog_decls(&ctx, ast->data.program.subprog_decls);
+    }
+    
+    /* 生成main函数（程序体不再重复声明程序级变量） */
+    fprintf(output, "\nint main(void) {\n");
+    ctx.indent_level = 1;
     
     /* 生成主程序体 */
     codegen_statement(&ctx, ast->data.program.body);

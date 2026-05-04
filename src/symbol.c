@@ -116,7 +116,8 @@ SymEntry* add_const_int(const char* name, int value, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_CONST;
     entry->type = TYPE_INTEGER;
     entry->scope_level = get_current_scope_level();
@@ -132,7 +133,8 @@ SymEntry* add_const_real(const char* name, double value, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_CONST;
     entry->type = TYPE_REAL;
     entry->scope_level = get_current_scope_level();
@@ -148,7 +150,8 @@ SymEntry* add_const_char(const char* name, char value, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_CONST;
     entry->type = TYPE_CHAR;
     entry->scope_level = get_current_scope_level();
@@ -164,7 +167,8 @@ SymEntry* add_const_bool(const char* name, int value, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_CONST;
     entry->type = TYPE_BOOLEAN;
     entry->scope_level = get_current_scope_level();
@@ -182,7 +186,8 @@ SymEntry* add_var(const char* name, DataType type, int line) {
     debug_content("add_var: name=", name,"scope_level=", get_current_scope_level());
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_VAR;
     entry->type = type;
     entry->scope_level = get_current_scope_level();
@@ -198,7 +203,8 @@ SymEntry* add_array(const char* name, ArrayInfo* info, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_VAR;
     entry->type = TYPE_ARRAY;
     entry->scope_level = get_current_scope_level();
@@ -214,7 +220,8 @@ SymEntry* add_proc(const char* name, ParamInfo* params, int param_count, int lin
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_PROC;
     entry->type = TYPE_UNKNOWN;
     entry->scope_level = get_current_scope_level();
@@ -233,7 +240,8 @@ SymEntry* add_func(const char* name, ParamInfo* params, int param_count,
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
-    strncpy(entry->name, name, 127);
+    strncpy(entry->name, name, PASCC_IDENT_LEN - 1);
+    entry->name[PASCC_IDENT_LEN - 1] = '\0';
     entry->kind = SYM_FUNC;
     entry->type = return_type;
     entry->scope_level = get_current_scope_level();

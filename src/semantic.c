@@ -226,6 +226,9 @@ static void check_statement(ASTNode* stmt) {
 
 /* 2. 检查赋值语句 */
 static void check_assign_stmt(ASTNode* node) {
+    if (!node) return;
+    if (!node->data.assign.lhs) return;
+    
     /* 检查左值 */
     if (node->data.assign.lhs->type != AST_VAR_REF) {// 左值必须是变量引用
         report_error(node->line, "Left side of assignment must be a variable");
@@ -292,6 +295,10 @@ static ExprType check_expr(ASTNode* expr) {
 
 /* 检查二元表达式 */
 static ExprType check_binary_expr(ASTNode* node) {
+    if (!node) {
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
     ExprType left = check_expr(node->data.binary.left);
     ExprType right = check_expr(node->data.binary.right);
     ExprType result = {TYPE_UNKNOWN, 0, 0};
@@ -344,6 +351,10 @@ static ExprType check_binary_expr(ASTNode* node) {
 
 /* 检查一元表达式 */
 static ExprType check_unary_expr(ASTNode* node) {
+    if (!node) {
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
     ExprType operand = check_expr(node->data.unary.operand);
     ExprType result = {TYPE_UNKNOWN, 0, 0};
     
@@ -371,6 +382,10 @@ static ExprType check_unary_expr(ASTNode* node) {
 
 /* 检查变量引用 */
 static ExprType check_var_ref(ASTNode* node) {
+    if (!node) {
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
     SymEntry* sym = lookup_symbol(node->data.var_ref.name);
     
     if (!sym) {
@@ -397,7 +412,7 @@ static ExprType check_var_ref(ASTNode* node) {
         }
 /* 处理多维数组下标（可能是 AST_STMT_LIST 包含多个下标） */
         ASTNode* index = node->data.var_ref.index_expr;
-        if (index->type == AST_STMT_LIST) {
+        if (index && index->type == AST_STMT_LIST) {
             /* 多维数组：检查每个下标 */
             ASTNode* idx = index->data.stmt_list.first;
             while (idx) {
@@ -408,7 +423,7 @@ static ExprType check_var_ref(ASTNode* node) {
                 }
                 idx = idx->next;
             }
-        } else {
+        } else if (index) {
             /* 单维数组 */
             ExprType index_type = check_expr(index);
             if (index_type.type != TYPE_INTEGER) {
@@ -449,6 +464,10 @@ static ExprType check_var_ref(ASTNode* node) {
 static ExprType check_const_val(ASTNode* node) {
     ExprType result = {TYPE_UNKNOWN, 1, 0};
     
+    if (!node) {
+        return result;
+    }
+    
     switch (node->data.const_val.token_type) {
         case TOKEN_INTEGER_CONST:
             result.type = TYPE_INTEGER;
@@ -475,6 +494,10 @@ static ExprType check_const_val(ASTNode* node) {
 
 /* 检查函数调用表达式 */
 static ExprType check_call_expr(ASTNode* node) {
+    if (!node) {
+        return (ExprType){TYPE_UNKNOWN, 0, 0};
+    }
+    
     SymEntry* sym = lookup_symbol(node->data.call_expr.name);
     
     if (!sym) {
@@ -523,18 +546,22 @@ static ExprType check_call_expr(ASTNode* node) {
     return (ExprType){sym->type, 0, 0};
 }
 
-/* 检查if语句 */
+/* 检查 if 语句 */
 static void check_if_stmt(ASTNode* node) {
+    if (!node) return;
+    
     ExprType cond = check_expr(node->data.if_stmt.cond);
     if (cond.type != TYPE_BOOLEAN) {
         report_error(node->line, "If condition must be boolean, got %s",
                     type_name(cond.type));
     }
-    /* 递归检查then和else部分（在语句检查中处理）*/
+    /* 递归检查 then 和 else 部分（在语句检查中处理）*/
 }
 
-/* 检查for语句 */
+/* 检查 for 语句 */
 static void check_for_stmt(ASTNode* node) {
+    if (!node) return;
+    
     SymEntry* var = lookup_symbol(node->data.for_stmt.var_name);
     if (!var) {
         report_error(node->line, "Undeclared loop variable '%s'",

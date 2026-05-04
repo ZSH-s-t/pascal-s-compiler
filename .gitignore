@@ -1,0 +1,6 @@
+build/*.o
+build/lex.yy.c
+pascc
+pascc.exe
+*.swp
+.DS_Store

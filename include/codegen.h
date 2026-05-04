@@ -18,6 +18,8 @@ typedef struct {
     int temp_var_count;     /* 临时变量计数 */
     int label_count;        /* 标签计数 */
     const char *current_function; /* 当前函数名（用于处理函数返回值） */
+    const ASTNode *current_subprog; /* 当前正在生成的子程序 AST（var 形参判断） */
+    ASTNode *subprog_decl_list;     /* program 子程序链表头，用于解析调用点形参 */
 } CodeGenContext;
 
 /* 初始化代码生成器 */
