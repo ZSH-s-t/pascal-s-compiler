@@ -332,23 +332,49 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             break;
         }
             
-        case AST_BINARY_EXPR:
-            /* Pascal '/' 恒为实型除法；C 在两侧为整型时 '/' 为整除，会偏离标答 */
-            if (expr->data.binary.op == OP_DIV) {
+        case AST_BINARY_EXPR: {
+            BinaryOp bop = expr->data.binary.op;
+            /* Pascal '/' 恒为实型除法 */
+            if (bop == OP_DIV) {
                 fprintf(ctx->output, "(((long double)(");
                 codegen_expression(ctx, expr->data.binary.left);
                 fprintf(ctx->output, ")) / ((long double)(");
                 codegen_expression(ctx, expr->data.binary.right);
                 fprintf(ctx->output, ")))");
-            } else {
-                fprintf(ctx->output, "(");
-                codegen_expression(ctx, expr->data.binary.left);
-                fprintf(ctx->output, " %s ", get_c_operator(expr->data.binary.op));
-                codegen_expression(ctx, expr->data.binary.right);
-                fprintf(ctx->output, ")");
+                break;
             }
+            /* 任一侧为 real 时，+ - * 在 C 里先按 double 再参与会丢尾位；强制 long double 运算 */
+            {
+                DataType lt = get_expr_type(ctx, expr->data.binary.left);
+                DataType rt = get_expr_type(ctx, expr->data.binary.right);
+                int realish = (lt == TYPE_REAL || rt == TYPE_REAL);
+                if (realish && (bop == OP_ADD || bop == OP_SUB || bop == OP_MUL)) {
+                    fprintf(ctx->output, "(((long double)(");
+                    codegen_expression(ctx, expr->data.binary.left);
+                    fprintf(ctx->output, ")) %s ((long double)(",
+                            get_c_operator(bop));
+                    codegen_expression(ctx, expr->data.binary.right);
+                    fprintf(ctx->output, ")))");
+                    break;
+                }
+                if (realish && (bop >= OP_EQ && bop <= OP_GE)) {
+                    fprintf(ctx->output, "(((long double)(");
+                    codegen_expression(ctx, expr->data.binary.left);
+                    fprintf(ctx->output, ")) %s ((long double)(",
+                            get_c_operator(bop));
+                    codegen_expression(ctx, expr->data.binary.right);
+                    fprintf(ctx->output, ")))");
+                    break;
+                }
+            }
+            fprintf(ctx->output, "(");
+            codegen_expression(ctx, expr->data.binary.left);
+            fprintf(ctx->output, " %s ", get_c_operator(bop));
+            codegen_expression(ctx, expr->data.binary.right);
+            fprintf(ctx->output, ")");
             break;
-            
+        }
+
         case AST_UNARY_EXPR:
             if (expr->data.unary.op == UNARY_NOT) {
                 /* 整数/非布尔：Pascal not 为按位取反；布尔：逻辑非 */
@@ -357,12 +383,20 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                 } else {
                     fprintf(ctx->output, "~");
                 }
+                fprintf(ctx->output, "(");
+                codegen_expression(ctx, expr->data.unary.operand);
+                fprintf(ctx->output, ")");
             } else if (expr->data.unary.op == UNARY_MINUS) {
-                fprintf(ctx->output, "-");
+                if (get_expr_type(ctx, expr->data.unary.operand) == TYPE_REAL) {
+                    fprintf(ctx->output, "(-((long double)(");
+                    codegen_expression(ctx, expr->data.unary.operand);
+                    fprintf(ctx->output, ")))");
+                } else {
+                    fprintf(ctx->output, "-(");
+                    codegen_expression(ctx, expr->data.unary.operand);
+                    fprintf(ctx->output, ")");
+                }
             }
-            fprintf(ctx->output, "(");
-            codegen_expression(ctx, expr->data.unary.operand);
-            fprintf(ctx->output, ")");
             break;
             
         case AST_CALL_EXPR: {
