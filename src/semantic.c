@@ -37,6 +37,7 @@ static void check_for_stmt(ASTNode* node);
 static void check_compound_stmt(ASTNode* node);
 static void check_read_stmt(ASTNode* node);
 static void check_write_stmt(ASTNode* node);
+static void check_statement_list(ASTNode* list);
 static ExprType check_binary_expr(ASTNode* node);
 static ExprType check_unary_expr(ASTNode* node);
 static ExprType check_var_ref(ASTNode* node);
