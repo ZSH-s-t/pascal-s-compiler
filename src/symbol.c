@@ -9,6 +9,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
+
+/* 与 strcmp 相同：0 表示两标识符忽略大小写后相等 */
+int pascc_ident_equal(const char *a, const char *b) {
+    if (!a && !b) return 0;
+    if (!a || !b) return 1;
+    while (*a && *b) {
+        int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (d) return d;
+        a++;
+        b++;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
 
 SymTableManager sym_manager;
 
@@ -83,7 +97,7 @@ SymEntry* lookup_current_scope(const char* name) {
     
     SymEntry* entry = sym_manager.current_scope->symbols;
     while (entry) {
-        if (strcmp(entry->name, name) == 0) {
+        if (pascc_ident_equal(entry->name, name) == 0) {
             return entry;
         }
         entry = entry->next;
@@ -97,7 +111,7 @@ SymEntry* lookup_symbol(const char* name) {
     while (scope) {
         SymEntry* entry = scope->symbols;
         while (entry) {
-            if (strcmp(entry->name, name) == 0) {
+            if (pascc_ident_equal(entry->name, name) == 0) {
                 return entry;
             }
             entry = entry->next;

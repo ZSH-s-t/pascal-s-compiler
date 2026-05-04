@@ -71,7 +71,7 @@ static DataType get_expr_type(ASTNode *expr);
 static ASTNode *find_subprog_decl(ASTNode *head, const char *name) {
     ASTNode *n = head;
     while (n && n->type == AST_SUBPROG_DECL) {
-        if (strcmp(n->data.subprog.name, name) == 0)
+        if (pascc_ident_equal(n->data.subprog.name, name) == 0)
             return n;
         n = n->data.subprog.next_decl;
     }
@@ -87,7 +87,7 @@ static int is_var_formal_param(const CodeGenContext *ctx, const char *name) {
         if (param->data.param.is_var) {
             ASTNode *id = param->data.param.id_list;
             while (id && id->type == AST_IDENTIFIER) {
-                if (strcmp(id->data.id_node.name, name) == 0)
+                if (pascc_ident_equal(id->data.id_node.name, name) == 0)
                     return 1;
                 id = id->next;
             }
@@ -107,10 +107,14 @@ static void codegen_actual_for_var_formal(CodeGenContext *ctx, ASTNode *arg) {
             fprintf(ctx->output, ")");
             return;
         }
-        if (is_var_formal_param(ctx, v))
-            fprintf(ctx->output, "%s", v);
-        else
-            fprintf(ctx->output, "&%s", v);
+        {
+            SymEntry *vs = lookup_symbol(v);
+            const char *cn = (vs && vs->name[0]) ? vs->name : v;
+            if (is_var_formal_param(ctx, v))
+                fprintf(ctx->output, "%s", cn);
+            else
+                fprintf(ctx->output, "&%s", cn);
+        }
         return;
     }
     fprintf(ctx->output, "&(");
@@ -186,7 +190,7 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                     fprintf(ctx->output, "%d", expr->data.const_val.int_val);
                     break;
                 case TOKEN_REAL_CONST:
-                    fprintf(ctx->output, "%f", expr->data.const_val.real_val);
+                    fprintf(ctx->output, "%.6f", expr->data.const_val.real_val);
                     break;
                 case TOKEN_CHAR_CONST:
                     fprintf(ctx->output, "'%c'", expr->data.const_val.char_val);
@@ -204,16 +208,19 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             
         case AST_VAR_REF: {
             const char *vname = expr->data.var_ref.name;
+            SymEntry *sym = lookup_symbol(vname);
+            const char *cid = (sym && sym->name[0]) ? sym->name : vname;
             /* 函数体内对函数名赋值：指向隐式返回值变量 */
-            if (ctx->current_function &&
-                strcmp(vname, ctx->current_function) == 0) {
-                fprintf(ctx->output, "%s_result", vname);
+            if (ctx->current_function && ctx->current_subprog &&
+                ctx->current_subprog->type == AST_SUBPROG_DECL &&
+                pascc_ident_equal(vname, ctx->current_subprog->data.subprog.name) == 0) {
+                fprintf(ctx->output, "%s_result",
+                        ctx->current_subprog->data.subprog.name);
             } else if (is_var_formal_param(ctx, vname)) {
-                fprintf(ctx->output, "(*%s)", vname);
+                fprintf(ctx->output, "(*%s)", cid);
             } else {
-                fprintf(ctx->output, "%s", vname);
+                fprintf(ctx->output, "%s", cid);
                 /* 无参函数在表达式中必须按调用生成，否则在 C 中会退化为函数指针 */
-                SymEntry *sym = lookup_symbol(vname);
                 if (sym && sym->kind == SYM_FUNC &&
                     sym->u.func_info.param_count == 0) {
                     fprintf(ctx->output, "()");
@@ -265,9 +272,11 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             break;
             
         case AST_CALL_EXPR: {
-            fprintf(ctx->output, "%s(", expr->data.call_expr.name);
             ASTNode *callee = find_subprog_decl(ctx->subprog_decl_list,
                                                   expr->data.call_expr.name);
+            const char *callee_cname = callee ? callee->data.subprog.name
+                                               : expr->data.call_expr.name;
+            fprintf(ctx->output, "%s(", callee_cname);
             if (callee && callee->type == AST_SUBPROG_DECL) {
                 codegen_call_args_with_params(ctx, expr->data.call_expr.args,
                                               callee->data.subprog.params);
@@ -439,19 +448,26 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
                     case TYPE_CHAR: format = " %c"; break;
                     default: format = "%d"; break;
                 }
-                
-                fprintf(ctx->output, "scanf(\"%s\", ", format);
-                if (is_var_formal_param(ctx, var->data.var_ref.name) &&
+
+                if (sym->kind == SYM_FUNC && ctx->current_function &&
+                    pascc_ident_equal(var->data.var_ref.name, ctx->current_function) == 0 &&
                     !var->data.var_ref.index_expr) {
-                    fprintf(ctx->output, "%s", var->data.var_ref.name);
-                } else if (var->data.var_ref.index_expr) {
-                    fprintf(ctx->output, "&(");
-                    codegen_expression(ctx, var);
-                    fprintf(ctx->output, ")");
+                    fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n",
+                            format, sym->name);
                 } else {
-                    fprintf(ctx->output, "&%s", var->data.var_ref.name);
+                    fprintf(ctx->output, "scanf(\"%s\", ", format);
+                    if (is_var_formal_param(ctx, var->data.var_ref.name) &&
+                        !var->data.var_ref.index_expr) {
+                        fprintf(ctx->output, "%s", sym->name);
+                    } else if (var->data.var_ref.index_expr) {
+                        fprintf(ctx->output, "&(");
+                        codegen_expression(ctx, var);
+                        fprintf(ctx->output, ")");
+                    } else {
+                        fprintf(ctx->output, "&%s", sym->name);
+                    }
+                    fprintf(ctx->output, ");\n");
                 }
-                fprintf(ctx->output, ");\n");
             }
         }
         
@@ -475,7 +491,7 @@ static void codegen_write_stmt(CodeGenContext *ctx, ASTNode *node) {
         const char *format = "";
         switch (expr_type) {
             case TYPE_INTEGER: format = "%d"; break;
-            case TYPE_REAL: format = "%f"; break;
+            case TYPE_REAL: format = "%.6f"; break;
             case TYPE_CHAR: format = "%c"; break;
             case TYPE_BOOLEAN: format = "%d"; break;
             default: format = "%d"; break;
@@ -540,7 +556,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                             const char *format = "";
                             switch (expr_type) {
                                 case TYPE_INTEGER: format = "%d"; break;
-                                case TYPE_REAL: format = "%f"; break;
+                                case TYPE_REAL: format = "%.6f"; break;
                                 case TYPE_CHAR: format = "%c"; break;
                                 case TYPE_BOOLEAN: format = "%d"; break;
                                 default: format = "%d"; break;
@@ -556,7 +572,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                         const char *format = "";
                         switch (expr_type) {
                             case TYPE_INTEGER: format = "%d"; break;
-                            case TYPE_REAL: format = "%f"; break;
+                            case TYPE_REAL: format = "%.6f"; break;
                             case TYPE_CHAR: format = "%c"; break;
                             case TYPE_BOOLEAN: format = "%d"; break;
                             default: format = "%d"; break;
@@ -573,9 +589,11 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                 }
             } else {
                 /* 普通过程调用 */
-                fprintf(ctx->output, "%s(", stmt->data.call_stmt.name);
                 ASTNode *callee = find_subprog_decl(ctx->subprog_decl_list,
                                                     stmt->data.call_stmt.name);
+                const char *cname = callee ? callee->data.subprog.name
+                                           : stmt->data.call_stmt.name;
+                fprintf(ctx->output, "%s(", cname);
                 if (callee && callee->type == AST_SUBPROG_DECL) {
                     codegen_call_args_with_params(ctx, stmt->data.call_stmt.args,
                                                   callee->data.subprog.params);

@@ -103,6 +103,9 @@ SymEntry* add_proc(const char* name, ParamInfo* params, int param_count, int lin
 SymEntry* add_func(const char* name, ParamInfo* params, int param_count, 
                     DataType return_type, int line);
 
+/* 标识符忽略大小写比较，返回值同 strcmp（0 表示相等） */
+int pascc_ident_equal(const char *a, const char *b);
+
 /* 符号查找（从当前作用域向外） */
 SymEntry* lookup_symbol(const char* name);
 
