@@ -39,6 +39,7 @@ typedef enum {
     TOKEN_UNTIL,            /* until */
     TOKEN_CASE,             /* case */
     TOKEN_READ,             /* read */
+    TOKEN_READLN,           /* readln */
     TOKEN_WRITE,            /* write */
     TOKEN_WRITELN,          /* writeln */
     TOKEN_ARRAY,            /* array */

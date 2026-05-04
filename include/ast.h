@@ -23,6 +23,7 @@ typedef enum {
     AST_IF_STMT,        /* if-then-else */
     AST_FOR_STMT,       /* for循环 */
     AST_WHILE_STMT,     /* while循环（扩展）*/
+    AST_REPEAT_STMT,    /* repeat-until */
     AST_CALL_STMT,      /* 过程调用 */
     AST_READ_STMT,      /* read语句 */
     AST_WRITE_STMT,     /* write/writeln语句 */
@@ -133,6 +134,12 @@ struct ASTNode {
             ASTNode *body;
         } while_stmt;
 
+        /* repeat-until */
+        struct {
+            ASTNode *body_list;   /* AST_STMT_LIST */
+            ASTNode *until_cond;
+        } repeat_stmt;
+
         /* 二元表达式 */
         struct {
             BinaryOp op;
@@ -192,6 +199,7 @@ struct ASTNode {
         /* read语句 */
         struct {
             ASTNode *var_list;  /* 变量列表 */
+            int is_readln;      /* 1: readln，读完后丢弃行尾 */
         } read_stmt;
 
         /* write语句 */

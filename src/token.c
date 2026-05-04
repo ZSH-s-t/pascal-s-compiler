@@ -42,6 +42,7 @@ static KeywordEntry keyword_table[] = {
     {"case", TOKEN_CASE},
     
     /* 输入输出关键字 */
+    {"readln", TOKEN_READLN},
     {"read", TOKEN_READ},
     {"write", TOKEN_WRITE},
     {"writeln", TOKEN_WRITELN},
@@ -107,6 +108,7 @@ const char* token_type_to_string(TokenType type) {
         case TOKEN_UNTIL: return "TOKEN_UNTIL";
         case TOKEN_CASE: return "TOKEN_CASE";
         case TOKEN_READ: return "TOKEN_READ";
+        case TOKEN_READLN: return "TOKEN_READLN";
         case TOKEN_WRITE: return "TOKEN_WRITE";
         case TOKEN_WRITELN: return "TOKEN_WRITELN";
         case TOKEN_ARRAY: return "TOKEN_ARRAY";

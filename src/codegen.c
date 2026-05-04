@@ -418,6 +418,19 @@ static void codegen_for_stmt(CodeGenContext *ctx, ASTNode *node) {
     fprintf(ctx->output, "}\n");
 }
 
+/* repeat-until：条件为真时结束 */
+static void codegen_repeat_stmt(CodeGenContext *ctx, ASTNode *node) {
+    codegen_indent(ctx);
+    fprintf(ctx->output, "do {\n");
+    ctx->indent_level++;
+    codegen_stmt_list(ctx, node->data.repeat_stmt.body_list);
+    ctx->indent_level--;
+    codegen_indent(ctx);
+    fprintf(ctx->output, "} while (!(");
+    codegen_expression(ctx, node->data.repeat_stmt.until_cond);
+    fprintf(ctx->output, "));\n");
+}
+
 /* 生成 while 语句 */
 static void codegen_while_stmt(CodeGenContext *ctx, ASTNode *node) {
     codegen_indent(ctx);
@@ -506,78 +519,82 @@ static DataType get_expr_type(const CodeGenContext *ctx, ASTNode *expr) {
 
 /* 生成read语句 */
 static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
-    if (!node->data.read_stmt.var_list) return;
-    
     ASTNode *var_list = node->data.read_stmt.var_list;
-    if (var_list->type != AST_STMT_LIST) return;
-    
-    ASTNode *var = var_list->data.stmt_list.first;
-    while (var) {
-        codegen_indent(ctx);
-        
-        /* 根据变量类型生成不同的scanf格式 */
-        if (var->type == AST_VAR_REF) {
-            const char *rname = var->data.var_ref.name;
-            SymEntry *sym = lookup_symbol(rname);
-            PasDeclInfo di = {0};
-            if (ctx->current_subprog)
-                di = lookup_decl_in_subprog(ctx->current_subprog, rname);
+    if (var_list && var_list->type == AST_STMT_LIST) {
+        ASTNode *var = var_list->data.stmt_list.first;
+        while (var) {
+            codegen_indent(ctx);
 
-            const int use_di = di.found;
-            const int read_func_result =
-                !var->data.var_ref.index_expr && ctx->current_function &&
-                ctx->current_subprog &&
-                ctx->current_subprog->type == AST_SUBPROG_DECL &&
-                ctx->current_subprog->data.subprog.is_function &&
-                pascc_ident_equal(rname, ctx->current_function) == 0 && !use_di;
+            /* 根据变量类型生成不同的scanf格式 */
+            if (var->type == AST_VAR_REF) {
+                const char *rname = var->data.var_ref.name;
+                SymEntry *sym = lookup_symbol(rname);
+                PasDeclInfo di = {0};
+                if (ctx->current_subprog)
+                    di = lookup_decl_in_subprog(ctx->current_subprog, rname);
 
-            if (use_di || sym || read_func_result) {
-                DataType var_type;
-                const char *vname_c;
+                const int use_di = di.found;
+                const int read_func_result =
+                    !var->data.var_ref.index_expr && ctx->current_function &&
+                    ctx->current_subprog &&
+                    ctx->current_subprog->type == AST_SUBPROG_DECL &&
+                    ctx->current_subprog->data.subprog.is_function &&
+                    pascc_ident_equal(rname, ctx->current_function) == 0 && !use_di;
 
-                if (use_di) {
-                    var_type = di.type;
-                    vname_c = di.cname ? di.cname : rname;
-                } else if (read_func_result) {
-                    var_type = ctx->current_subprog->data.subprog.return_type;
-                    vname_c = ctx->current_subprog->data.subprog.name;
-                } else {
-                    var_type = sym->type;
-                    if (var_type == TYPE_ARRAY)
-                        var_type = sym->u.array_info.elem_type;
-                    vname_c = (sym->name[0]) ? sym->name : rname;
-                }
+                if (use_di || sym || read_func_result) {
+                    DataType var_type;
+                    const char *vname_c;
 
-                const char *format = "";
-                switch (var_type) {
-                    case TYPE_INTEGER: format = "%d"; break;
-                    case TYPE_REAL: format = "%lf"; break;
-                    case TYPE_CHAR: format = " %c"; break;
-                    default: format = "%d"; break;
-                }
-
-                if (read_func_result) {
-                    fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n", format,
-                            ctx->current_subprog->data.subprog.name);
-                } else {
-                    fprintf(ctx->output, "scanf(\"%s\", ", format);
-                    if (((use_di && di.is_var_param) ||
-                         (!use_di && is_var_formal_param(ctx, rname))) &&
-                        !var->data.var_ref.index_expr) {
-                        fprintf(ctx->output, "%s", vname_c);
-                    } else if (var->data.var_ref.index_expr) {
-                        fprintf(ctx->output, "&(");
-                        codegen_expression(ctx, var);
-                        fprintf(ctx->output, ")");
+                    if (use_di) {
+                        var_type = di.type;
+                        vname_c = di.cname ? di.cname : rname;
+                    } else if (read_func_result) {
+                        var_type = ctx->current_subprog->data.subprog.return_type;
+                        vname_c = ctx->current_subprog->data.subprog.name;
                     } else {
-                        fprintf(ctx->output, "&%s", vname_c);
+                        var_type = sym->type;
+                        if (var_type == TYPE_ARRAY)
+                            var_type = sym->u.array_info.elem_type;
+                        vname_c = (sym->name[0]) ? sym->name : rname;
                     }
-                    fprintf(ctx->output, ");\n");
+
+                    const char *format = "";
+                    switch (var_type) {
+                        case TYPE_INTEGER: format = "%d"; break;
+                        case TYPE_REAL: format = "%lf"; break;
+                        case TYPE_CHAR: format = " %c"; break;
+                        default: format = "%d"; break;
+                    }
+
+                    if (read_func_result) {
+                        fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n", format,
+                                ctx->current_subprog->data.subprog.name);
+                    } else {
+                        fprintf(ctx->output, "scanf(\"%s\", ", format);
+                        if (((use_di && di.is_var_param) ||
+                             (!use_di && is_var_formal_param(ctx, rname))) &&
+                            !var->data.var_ref.index_expr) {
+                            fprintf(ctx->output, "%s", vname_c);
+                        } else if (var->data.var_ref.index_expr) {
+                            fprintf(ctx->output, "&(");
+                            codegen_expression(ctx, var);
+                            fprintf(ctx->output, ")");
+                        } else {
+                            fprintf(ctx->output, "&%s", vname_c);
+                        }
+                        fprintf(ctx->output, ");\n");
+                    }
                 }
             }
+
+            var = var->next;
         }
-        
-        var = var->next;
+    }
+    if (node->data.read_stmt.is_readln) {
+        codegen_indent(ctx);
+        fprintf(ctx->output,
+                "{ int __pascc_c; while ((__pascc_c = getchar()) != '\\n' && "
+                "__pascc_c != EOF) { } }\n");
     }
 }
 
@@ -635,7 +652,11 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
         case AST_WHILE_STMT:
             codegen_while_stmt(ctx, stmt);
             break;
-            
+
+        case AST_REPEAT_STMT:
+            codegen_repeat_stmt(ctx, stmt);
+            break;
+
         case AST_COMPOUND_STMT:
             codegen_compound_stmt(ctx, stmt);
             break;

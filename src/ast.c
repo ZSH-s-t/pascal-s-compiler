@@ -242,6 +242,13 @@ void ast_print(ASTNode *node, int indent) {
             print_indent(indent+1); printf("Body:\n");
             ast_print(node->data.while_stmt.body, indent+2);
             break;
+        case AST_REPEAT_STMT:
+            printf("Repeat-until (line %d):\n", node->line);
+            print_indent(indent+1); printf("Body:\n");
+            ast_print(node->data.repeat_stmt.body_list, indent+2);
+            print_indent(indent+1); printf("Until:\n");
+            ast_print(node->data.repeat_stmt.until_cond, indent+2);
+            break;
         case AST_BINARY_EXPR:
             printf("BinaryOp: %s (line %d)\n", op_name(node->data.binary.op), node->line);
             ast_print(node->data.binary.left, indent+1);
@@ -350,6 +357,17 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.for_stmt.start_expr);
             ast_free(node->data.for_stmt.end_expr);
             ast_free(node->data.for_stmt.body);
+            break;
+        case AST_WHILE_STMT:
+            ast_free(node->data.while_stmt.cond);
+            ast_free(node->data.while_stmt.body);
+            break;
+        case AST_REPEAT_STMT:
+            ast_free(node->data.repeat_stmt.body_list);
+            ast_free(node->data.repeat_stmt.until_cond);
+            break;
+        case AST_CALL_EXPR:
+            ast_free(node->data.call_expr.args);
             break;
         case AST_BINARY_EXPR:
             ast_free(node->data.binary.left);

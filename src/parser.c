@@ -520,10 +520,34 @@ static ASTNode *parse_statement(void) {
             node->data.while_stmt.body = parse_statement();
             return node;
         }
+        case TOKEN_REPEAT: {
+            int line = cur_token.line;
+            advance();
+            ASTNode *list = ast_new_node(AST_STMT_LIST, line);
+            while (cur_token.type != TOKEN_UNTIL && cur_token.type != TOKEN_EOF) {
+                ASTNode *stmt = parse_statement();
+                if (stmt)
+                    list = ast_append_stmt(list, stmt);
+                if (cur_token.type == TOKEN_SEMICOLON)
+                    advance();
+            }
+            if (cur_token.type != TOKEN_UNTIL) {
+                syntax_error(line, "Expected 'until' after repeat");
+                return NULL;
+            }
+            advance();
+            ASTNode *node = ast_new_node(AST_REPEAT_STMT, line);
+            node->data.repeat_stmt.body_list = list;
+            node->data.repeat_stmt.until_cond = parse_expression();
+            if (cur_token.type == TOKEN_SEMICOLON)
+                advance();
+            return node;
+        }
         case TOKEN_READ: {
             advance();
             expect(TOKEN_LPAREN);
             ASTNode *node = ast_new_node(AST_READ_STMT, cur_token.line);
+            node->data.read_stmt.is_readln = 0;
             /* 解析变量列表 */
             {
                 ASTNode *var_list = ast_new_node(AST_STMT_LIST, cur_token.line);
@@ -538,6 +562,28 @@ static ASTNode *parse_statement(void) {
                 node->data.read_stmt.var_list = var_list;
             }
             expect(TOKEN_RPAREN);
+            return node;
+        }
+        case TOKEN_READLN: {
+            advance();
+            ASTNode *node = ast_new_node(AST_READ_STMT, cur_token.line);
+            node->data.read_stmt.is_readln = 1;
+            if (cur_token.type == TOKEN_LPAREN) {
+                advance();
+                ASTNode *var_list = ast_new_node(AST_STMT_LIST, cur_token.line);
+                ASTNode *first_var = parse_variable();
+                var_list->data.stmt_list.first = var_list->data.stmt_list.last = first_var;
+                while (cur_token.type == TOKEN_COMMA) {
+                    advance();
+                    ASTNode *var = parse_variable();
+                    var_list->data.stmt_list.last->next = var;
+                    var_list->data.stmt_list.last = var;
+                }
+                node->data.read_stmt.var_list = var_list;
+                expect(TOKEN_RPAREN);
+            } else {
+                node->data.read_stmt.var_list = NULL;
+            }
             return node;
         }
         case TOKEN_WRITE: {

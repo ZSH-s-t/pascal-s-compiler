@@ -219,6 +219,15 @@ static void check_statement(ASTNode* stmt) {
             check_statement(stmt->data.while_stmt.body);
             break;
         }
+        case AST_REPEAT_STMT: {
+            check_statement_list(stmt->data.repeat_stmt.body_list);
+            ExprType ut = check_expr(stmt->data.repeat_stmt.until_cond);
+            if (ut.type != TYPE_BOOLEAN && ut.type != TYPE_INTEGER) {
+                report_error(stmt->line, "Until condition must be boolean or integer, got %s",
+                             type_name(ut.type));
+            }
+            break;
+        }
         case AST_COMPOUND_STMT:
             check_compound_stmt(stmt);
             break;
