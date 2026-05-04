@@ -66,7 +66,50 @@ static void codegen_const_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_var_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_subprog_decls(CodeGenContext *ctx, ASTNode *node);
 static void codegen_stmt_list(CodeGenContext *ctx, ASTNode *list);
-static DataType get_expr_type(ASTNode *expr);
+static DataType get_expr_type(const CodeGenContext *ctx, ASTNode *expr);
+
+/* 语义分析后已 exit_scope，lookup_symbol 找不到子程序内局部量；按当前子程序 AST 回退查找 */
+typedef struct {
+    int found;
+    DataType type;
+    const char *cname; /* 声明中的拼写，供 C 输出 */
+} PasDeclInfo;
+
+static PasDeclInfo lookup_decl_in_subprog(const ASTNode *sub, const char *name) {
+    PasDeclInfo d = {0, TYPE_UNKNOWN, NULL};
+    if (!name || !sub || sub->type != AST_SUBPROG_DECL)
+        return d;
+    ASTNode *param = sub->data.subprog.params;
+    while (param && param->type == AST_PARAM_LIST) {
+        ASTNode *id = param->data.param.id_list;
+        while (id && id->type == AST_IDENTIFIER) {
+            if (pascc_ident_equal(id->data.id_node.name, name) == 0) {
+                d.found = 1;
+                d.type = param->data.param.type;
+                d.cname = id->data.id_node.name;
+                return d;
+            }
+            id = id->next;
+        }
+        param = param->data.param.next_param;
+    }
+        for (ASTNode *vd = sub->data.subprog.var_decls; vd && vd->type == AST_VAR_DECL;
+         vd = vd->data.var_decl.next_decl) {
+        ASTNode *id = vd->data.var_decl.id_list;
+        while (id && id->type == AST_IDENTIFIER) {
+            if (pascc_ident_equal(id->data.id_node.name, name) == 0) {
+                d.found = 1;
+                d.type = vd->data.var_decl.data_type;
+                if (d.type == TYPE_ARRAY)
+                    d.type = vd->data.var_decl.elem_type;
+                d.cname = id->data.id_node.name;
+                return d;
+            }
+            id = id->next;
+        }
+    }
+    return d;
+}
 
 static ASTNode *find_subprog_decl(ASTNode *head, const char *name) {
     ASTNode *n = head;
@@ -110,6 +153,11 @@ static void codegen_actual_for_var_formal(CodeGenContext *ctx, ASTNode *arg) {
         {
             SymEntry *vs = lookup_symbol(v);
             const char *cn = (vs && vs->name[0]) ? vs->name : v;
+            if (!vs && ctx->current_subprog) {
+                PasDeclInfo di = lookup_decl_in_subprog(ctx->current_subprog, v);
+                if (di.found && di.cname)
+                    cn = di.cname;
+            }
             if (is_var_formal_param(ctx, v))
                 fprintf(ctx->output, "%s", cn);
             else
@@ -210,6 +258,11 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
             const char *vname = expr->data.var_ref.name;
             SymEntry *sym = lookup_symbol(vname);
             const char *cid = (sym && sym->name[0]) ? sym->name : vname;
+            if (!sym && ctx->current_subprog) {
+                PasDeclInfo di = lookup_decl_in_subprog(ctx->current_subprog, vname);
+                if (di.found && di.cname)
+                    cid = di.cname;
+            }
             /* 函数体内对函数名赋值：指向隐式返回值变量 */
             if (ctx->current_function && ctx->current_subprog &&
                 ctx->current_subprog->type == AST_SUBPROG_DECL &&
@@ -258,7 +311,7 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
         case AST_UNARY_EXPR:
             if (expr->data.unary.op == UNARY_NOT) {
                 /* 整数/非布尔：Pascal not 为按位取反；布尔：逻辑非 */
-                if (get_expr_type(expr->data.unary.operand) == TYPE_BOOLEAN) {
+                if (get_expr_type(ctx, expr->data.unary.operand) == TYPE_BOOLEAN) {
                     fprintf(ctx->output, "!");
                 } else {
                     fprintf(ctx->output, "~");
@@ -372,7 +425,7 @@ static void codegen_compound_stmt(CodeGenContext *ctx, ASTNode *node) {
 }
 
 /* 获取表达式的类型（用于格式化输出） */
-static DataType get_expr_type(ASTNode *expr) {
+static DataType get_expr_type(const CodeGenContext *ctx, ASTNode *expr) {
     if (!expr) return TYPE_INTEGER;
     
     switch (expr->type) {
@@ -392,6 +445,12 @@ static DataType get_expr_type(ASTNode *expr) {
                     return sym->u.array_info.elem_type;
                 }
                 return sym->type;
+            }
+            if (ctx && ctx->current_subprog) {
+                PasDeclInfo di = lookup_decl_in_subprog(ctx->current_subprog,
+                                                         expr->data.var_ref.name);
+                if (di.found)
+                    return di.type;
             }
             return TYPE_INTEGER;
         }
@@ -413,8 +472,8 @@ static DataType get_expr_type(ASTNode *expr) {
             }
             /* 其他情况根据操作数类型 */
             {
-                DataType left_type = get_expr_type(expr->data.binary.left);
-                DataType right_type = get_expr_type(expr->data.binary.right);
+                DataType left_type = get_expr_type(ctx, expr->data.binary.left);
+                DataType right_type = get_expr_type(ctx, expr->data.binary.right);
                 if (left_type == TYPE_REAL || right_type == TYPE_REAL) {
                     return TYPE_REAL;
                 }
@@ -422,12 +481,12 @@ static DataType get_expr_type(ASTNode *expr) {
             }
         case AST_UNARY_EXPR:
             if (expr->data.unary.op == UNARY_NOT) {
-                if (get_expr_type(expr->data.unary.operand) == TYPE_BOOLEAN) {
+                if (get_expr_type(ctx, expr->data.unary.operand) == TYPE_BOOLEAN) {
                     return TYPE_BOOLEAN;
                 }
                 return TYPE_INTEGER;
             }
-            return get_expr_type(expr->data.unary.operand);
+            return get_expr_type(ctx, expr->data.unary.operand);
         default:
             return TYPE_INTEGER;
     }
@@ -446,14 +505,25 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
         
         /* 根据变量类型生成不同的scanf格式 */
         if (var->type == AST_VAR_REF) {
-            /* 查找变量类型 */
             SymEntry *sym = lookup_symbol(var->data.var_ref.name);
-            if (sym) {
-                DataType var_type = sym->type;
-                if (var_type == TYPE_ARRAY) {
-                    var_type = sym->u.array_info.elem_type;
+            PasDeclInfo di = {0, TYPE_UNKNOWN, NULL};
+            if (!sym && ctx->current_subprog)
+                di = lookup_decl_in_subprog(ctx->current_subprog, var->data.var_ref.name);
+
+            if (sym || di.found) {
+                DataType var_type;
+                const char *vname_c;
+
+                if (sym) {
+                    var_type = sym->type;
+                    if (var_type == TYPE_ARRAY)
+                        var_type = sym->u.array_info.elem_type;
+                    vname_c = (sym->name[0]) ? sym->name : var->data.var_ref.name;
+                } else {
+                    var_type = di.type;
+                    vname_c = di.cname ? di.cname : var->data.var_ref.name;
                 }
-                
+
                 const char *format = "";
                 switch (var_type) {
                     case TYPE_INTEGER: format = "%d"; break;
@@ -462,22 +532,24 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
                     default: format = "%d"; break;
                 }
 
-                if (sym->kind == SYM_FUNC && ctx->current_function &&
-                    pascc_ident_equal(var->data.var_ref.name, ctx->current_function) == 0 &&
-                    !var->data.var_ref.index_expr) {
-                    fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n",
-                            format, sym->name);
+                if (!var->data.var_ref.index_expr && ctx->current_function &&
+                    ctx->current_subprog &&
+                    ctx->current_subprog->type == AST_SUBPROG_DECL &&
+                    ctx->current_subprog->data.subprog.is_function &&
+                    pascc_ident_equal(var->data.var_ref.name, ctx->current_function) == 0) {
+                    fprintf(ctx->output, "scanf(\"%s\", &%s_result);\n", format,
+                            ctx->current_subprog->data.subprog.name);
                 } else {
                     fprintf(ctx->output, "scanf(\"%s\", ", format);
                     if (is_var_formal_param(ctx, var->data.var_ref.name) &&
                         !var->data.var_ref.index_expr) {
-                        fprintf(ctx->output, "%s", sym->name);
+                        fprintf(ctx->output, "%s", vname_c);
                     } else if (var->data.var_ref.index_expr) {
                         fprintf(ctx->output, "&(");
                         codegen_expression(ctx, var);
                         fprintf(ctx->output, ")");
                     } else {
-                        fprintf(ctx->output, "&%s", sym->name);
+                        fprintf(ctx->output, "&%s", vname_c);
                     }
                     fprintf(ctx->output, ");\n");
                 }
@@ -500,7 +572,7 @@ static void codegen_write_stmt(CodeGenContext *ctx, ASTNode *node) {
         codegen_indent(ctx);
         
         /* 根据表达式类型生成不同的printf格式 */
-        DataType expr_type = get_expr_type(expr);
+        DataType expr_type = get_expr_type(ctx, expr);
         const char *format = "";
         switch (expr_type) {
             case TYPE_INTEGER: format = "%d"; break;
@@ -569,7 +641,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                     if (args->type == AST_STMT_LIST) {
                         ASTNode *arg = args->data.stmt_list.first;
                         while (arg) {
-                            DataType expr_type = get_expr_type(arg);
+                            DataType expr_type = get_expr_type(ctx, arg);
                             const char *format = "";
                             switch (expr_type) {
                                 case TYPE_INTEGER: format = "%d"; break;
@@ -585,7 +657,7 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
                             if (arg) codegen_indent(ctx);
                         }
                     } else {
-                        DataType expr_type = get_expr_type(args);
+                        DataType expr_type = get_expr_type(ctx, args);
                         const char *format = "";
                         switch (expr_type) {
                             case TYPE_INTEGER: format = "%d"; break;
