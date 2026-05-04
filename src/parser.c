@@ -549,6 +549,20 @@ static ASTNode *parse_statement(void) {
             expect(TOKEN_RPAREN);
             return node;
         }
+        case TOKEN_WRITELN: {
+            int line = cur_token.line;
+            advance();
+            ASTNode *node = ast_new_node(AST_WRITE_STMT, line);
+            node->data.write_stmt.is_writeln = 1;
+            if (cur_token.type == TOKEN_LPAREN) {
+                advance();
+                node->data.write_stmt.expr_list = parse_expression_list();
+                expect(TOKEN_RPAREN);
+            } else {
+                node->data.write_stmt.expr_list = NULL;
+            }
+            return node;
+        }
         case TOKEN_SEMICOLON:
         case TOKEN_END:
         case TOKEN_ELSE:

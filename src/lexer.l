@@ -86,6 +86,7 @@ ILLEGAL_CHAR    .
 [Tt][Oo]                           { UPDATE_COLUMN(); return TOKEN_TO; }
 [Dd][Oo]                           { UPDATE_COLUMN(); return TOKEN_DO; }
 [Rr][Ee][Aa][Dd]                   { UPDATE_COLUMN(); return TOKEN_READ; }
+[Ww][Rr][Ii][Tt][Ee][Ll][Nn]       { UPDATE_COLUMN(); return TOKEN_WRITELN; }
 [Ww][Rr][Ii][Tt][Ee]               { UPDATE_COLUMN(); return TOKEN_WRITE; }
 [Aa][Rr][Rr][Aa][Yy]               { UPDATE_COLUMN(); return TOKEN_ARRAY; }
 [Oo][Ff]                           { UPDATE_COLUMN(); return TOKEN_OF; }

@@ -241,7 +241,8 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                     fprintf(ctx->output, "%d", expr->data.const_val.int_val);
                     break;
                 case TOKEN_REAL_CONST:
-                    fprintf(ctx->output, "%.6f", expr->data.const_val.real_val);
+                    /* 源码字面量需足够精度，避免 #define PI 等被截断后运算与标答不一致 */
+                    fprintf(ctx->output, "%.17g", expr->data.const_val.real_val);
                     break;
                 case TOKEN_CHAR_CONST:
                     fprintf(ctx->output, "'%c'", expr->data.const_val.char_val);
@@ -582,34 +583,32 @@ static void codegen_read_stmt(CodeGenContext *ctx, ASTNode *node) {
 
 /* 生成write语句 */
 static void codegen_write_stmt(CodeGenContext *ctx, ASTNode *node) {
-    if (!node->data.write_stmt.expr_list) return;
-    
     ASTNode *expr_list = node->data.write_stmt.expr_list;
-    if (expr_list->type != AST_STMT_LIST) return;
-    
-    ASTNode *expr = expr_list->data.stmt_list.first;
-    while (expr) {
-        codegen_indent(ctx);
-        
-        /* 根据表达式类型生成不同的printf格式 */
-        DataType expr_type = get_expr_type(ctx, expr);
-        const char *format = "";
-        switch (expr_type) {
-            case TYPE_INTEGER: format = "%d"; break;
-            case TYPE_REAL: format = "%.6f"; break;
-            case TYPE_CHAR: format = "%c"; break;
-            case TYPE_BOOLEAN: format = "%d"; break;
-            default: format = "%d"; break;
+    if (expr_list && expr_list->type == AST_STMT_LIST) {
+        ASTNode *expr = expr_list->data.stmt_list.first;
+        while (expr) {
+            codegen_indent(ctx);
+
+            /* 根据表达式类型生成不同的printf格式 */
+            DataType expr_type = get_expr_type(ctx, expr);
+            const char *format = "";
+            switch (expr_type) {
+                case TYPE_INTEGER: format = "%d"; break;
+                case TYPE_REAL: format = "%.6f"; break;
+                case TYPE_CHAR: format = "%c"; break;
+                case TYPE_BOOLEAN: format = "%d"; break;
+                default: format = "%d"; break;
+            }
+
+            fprintf(ctx->output, "printf(\"%s\", ", format);
+            codegen_expression(ctx, expr);
+            fprintf(ctx->output, ");\n");
+
+            expr = expr->next;
         }
-        
-        fprintf(ctx->output, "printf(\"%s\", ", format);
-        codegen_expression(ctx, expr);
-        fprintf(ctx->output, ");\n");
-        
-        expr = expr->next;
     }
-    
-    /* 如果是writeln，添加换行 */
+
+    /* 如果是writeln，添加换行（含 writeln 无参） */
     if (node->data.write_stmt.is_writeln) {
         codegen_indent(ctx);
         fprintf(ctx->output, "printf(\"\\n\");\n");
@@ -652,9 +651,10 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
         case AST_CALL_STMT:
             codegen_indent(ctx);
             /* 特殊处理 writeln 和 write */
-            if (strcmp(stmt->data.call_stmt.name, "writeln") == 0 || 
-                strcmp(stmt->data.call_stmt.name, "write") == 0) {
-                int is_writeln = (strcmp(stmt->data.call_stmt.name, "writeln") == 0);
+            if (pascc_ident_equal(stmt->data.call_stmt.name, "writeln") == 0 ||
+                pascc_ident_equal(stmt->data.call_stmt.name, "write") == 0) {
+                int is_writeln =
+                    (pascc_ident_equal(stmt->data.call_stmt.name, "writeln") == 0);
                 
                 if (stmt->data.call_stmt.args) {
                     ASTNode *args = stmt->data.call_stmt.args;
