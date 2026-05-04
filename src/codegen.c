@@ -313,11 +313,20 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
         }
             
         case AST_BINARY_EXPR:
-            fprintf(ctx->output, "(");
-            codegen_expression(ctx, expr->data.binary.left);
-            fprintf(ctx->output, " %s ", get_c_operator(expr->data.binary.op));
-            codegen_expression(ctx, expr->data.binary.right);
-            fprintf(ctx->output, ")");
+            /* Pascal '/' 恒为实型除法；C 在两侧为整型时 '/' 为整除，会偏离标答 */
+            if (expr->data.binary.op == OP_DIV) {
+                fprintf(ctx->output, "(((double)(");
+                codegen_expression(ctx, expr->data.binary.left);
+                fprintf(ctx->output, ")) / ((double)(");
+                codegen_expression(ctx, expr->data.binary.right);
+                fprintf(ctx->output, ")))");
+            } else {
+                fprintf(ctx->output, "(");
+                codegen_expression(ctx, expr->data.binary.left);
+                fprintf(ctx->output, " %s ", get_c_operator(expr->data.binary.op));
+                codegen_expression(ctx, expr->data.binary.right);
+                fprintf(ctx->output, ")");
+            }
             break;
             
         case AST_UNARY_EXPR:
@@ -937,7 +946,9 @@ int codegen_program(ASTNode *ast, FILE *output) {
     /* 生成头文件包含 */
     fprintf(output, "#include <stdio.h>\n");
     fprintf(output, "#include <stdlib.h>\n");
-    fprintf(output, "#include <math.h>\n\n");
+    fprintf(output, "#include <math.h>\n");
+    /* 减少与标答环境在实型表达式合并上的差异（如 EduCoder 24_fp_params） */
+    fprintf(output, "#pragma STDC FP_CONTRACT OFF\n\n");
     
     /* 常量 */
     if (ast->data.program.const_decls) {
