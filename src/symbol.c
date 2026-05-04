@@ -11,6 +11,8 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+void debug_content(const char *fmt, ...);
+
 /* 与 strcmp 相同：0 表示两标识符忽略大小写后相等 */
 int pascc_ident_equal(const char *a, const char *b) {
     if (!a && !b) return 0;

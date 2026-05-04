@@ -8,6 +8,16 @@
 #include <string.h>
 #include <ctype.h>
 
+/* 不依赖 strcasecmp（部分 C99 环境未声明） */
+static int keyword_name_iequal(const char *a, const char *b) {
+    if (!a || !b) return a == b ? 0 : 1;
+    for (; *a && *b; a++, b++) {
+        int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (d) return d;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
 /* 关键字查找表 */
 static KeywordEntry keyword_table[] = {
     /* 程序结构关键字 */
@@ -163,7 +173,7 @@ TokenType lookup_keyword(const char *name) {
     
     /* 遍历关键字表进行查找 */
     for (int i = 0; keyword_table[i].name != NULL; i++) {
-        if (strcasecmp(name, keyword_table[i].name) == 0) {
+        if (keyword_name_iequal(name, keyword_table[i].name) == 0) {
             return keyword_table[i].type;
         }
     }

@@ -160,32 +160,47 @@ static ASTNode *parse_const_value(void) {
     switch (cur_token.type) {
         case TOKEN_PLUS:
             advance();
-            if (cur_token.type == TOKEN_INTEGER_CONST)
-                return ast_new_const_int(cur_token.value.int_val, line);
-            else if (cur_token.type == TOKEN_REAL_CONST)
-                return ast_new_const_real(cur_token.value.real_val, line);
+            if (cur_token.type == TOKEN_INTEGER_CONST) {
+                int v = cur_token.value.int_val;
+                advance();
+                return ast_new_const_int(v, line);
+            } else if (cur_token.type == TOKEN_REAL_CONST) {
+                double v = cur_token.value.real_val;
+                advance();
+                return ast_new_const_real(v, line);
+            }
             break;
         case TOKEN_MINUS:
             advance();
-            if (cur_token.type == TOKEN_INTEGER_CONST)
-                return ast_new_const_int(-cur_token.value.int_val, line);
-            else if (cur_token.type == TOKEN_REAL_CONST)
-                return ast_new_const_real(-cur_token.value.real_val, line);
+            if (cur_token.type == TOKEN_INTEGER_CONST) {
+                int v = cur_token.value.int_val;
+                advance();
+                return ast_new_const_int(-v, line);
+            } else if (cur_token.type == TOKEN_REAL_CONST) {
+                double v = cur_token.value.real_val;
+                advance();
+                return ast_new_const_real(-v, line);
+            }
             break;
-        case TOKEN_INTEGER_CONST:
+        case TOKEN_INTEGER_CONST: {
+            int v = cur_token.value.int_val;
             advance();
-            return ast_new_const_int(cur_token.value.int_val, line);
-        case TOKEN_REAL_CONST:
+            return ast_new_const_int(v, line);
+        }
+        case TOKEN_REAL_CONST: {
+            double v = cur_token.value.real_val;
             advance();
-            return ast_new_const_real(cur_token.value.real_val, line);
-        case TOKEN_CHAR_CONST:
+            return ast_new_const_real(v, line);
+        }
+        case TOKEN_CHAR_CONST: {
+            char c = cur_token.value.char_val;
             advance();
-            return ast_new_const_char(cur_token.value.char_val, line);
+            return ast_new_const_char(c, line);
+        }
         default:
-            syntax_error(line, "Invalid constant value");
-            advance();
-            return ast_new_const_int(0, line);
+            break;
     }
+    syntax_error(line, "Invalid constant value");
     advance();
     return ast_new_const_int(0, line);
 }
@@ -731,19 +746,27 @@ static ASTNode *parse_factor(void) {
                 return ast_new_var_ref(name, NULL, line);
             }
         }
-        case TOKEN_INTEGER_CONST:
+        case TOKEN_INTEGER_CONST: {
+            int v = cur_token.value.int_val;
             advance();
-            return ast_new_const_int(cur_token.value.int_val, line);
-        case TOKEN_REAL_CONST:
+            return ast_new_const_int(v, line);
+        }
+        case TOKEN_REAL_CONST: {
+            double v = cur_token.value.real_val;
             advance();
-            return ast_new_const_real(cur_token.value.real_val, line);
-        case TOKEN_CHAR_CONST:
+            return ast_new_const_real(v, line);
+        }
+        case TOKEN_CHAR_CONST: {
+            char c = cur_token.value.char_val;
             advance();
-            return ast_new_const_char(cur_token.value.char_val, line);
+            return ast_new_const_char(c, line);
+        }
         case TOKEN_TRUE:
-        case TOKEN_FALSE:
+        case TOKEN_FALSE: {
+            int is_true = (cur_token.type == TOKEN_TRUE);
             advance();
-            return ast_new_const_bool(cur_token.type == TOKEN_TRUE, line);
+            return ast_new_const_bool(is_true, line);
+        }
         case TOKEN_LPAREN: {
             advance();
             ASTNode *expr = parse_expression();
