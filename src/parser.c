@@ -79,6 +79,9 @@ static ASTNode *parse_compound_statement(void);
 static ASTNode *parse_statement_list(void);
 static ASTNode *parse_statement(void);
 static ASTNode *parse_expression(void);
+static ASTNode *parse_logical_or(void);
+static ASTNode *parse_logical_and(void);
+static ASTNode *parse_relational(void);
 static ASTNode *parse_simple_expression(void);
 static ASTNode *parse_term(void);
 static ASTNode *parse_factor(void);
@@ -601,8 +604,37 @@ static ASTNode *parse_variable(void) {
     return ast_new_var_ref(name, index, line);
 }
 
-/* ---------- 表达式（含关系运算符）---------- */
+/* ---------- 表达式 ----------
+ * 优先级（从紧到松）：* / div mod  >  + -  >  关系运算  >  and  >  or
+ * 故 a = b or c = d 解析为 (a = b) or (c = d)，与常见 Pascal/OJ 一致。
+ */
 static ASTNode *parse_expression(void) {
+    return parse_logical_or();
+}
+
+static ASTNode *parse_logical_or(void) {
+    ASTNode *left = parse_logical_and();
+    while (cur_token.type == TOKEN_OR) {
+        int line = cur_token.line;
+        advance();
+        ASTNode *right = parse_logical_and();
+        left = ast_new_binary_expr(OP_OR, left, right, line);
+    }
+    return left;
+}
+
+static ASTNode *parse_logical_and(void) {
+    ASTNode *left = parse_relational();
+    while (cur_token.type == TOKEN_AND) {
+        int line = cur_token.line;
+        advance();
+        ASTNode *right = parse_relational();
+        left = ast_new_binary_expr(OP_AND, left, right, line);
+    }
+    return left;
+}
+
+static ASTNode *parse_relational(void) {
     ASTNode *left = parse_simple_expression();
     TokenType relop = cur_token.type;
     if (relop == TOKEN_EQ || relop == TOKEN_NE || relop == TOKEN_LT ||
@@ -627,12 +659,8 @@ static ASTNode *parse_expression(void) {
 
 static ASTNode *parse_simple_expression(void) {
     ASTNode *left = parse_term();
-    while (cur_token.type == TOKEN_PLUS || cur_token.type == TOKEN_MINUS ||
-           cur_token.type == TOKEN_OR) {
-        BinaryOp op;
-        if (cur_token.type == TOKEN_PLUS) op = OP_ADD;
-        else if (cur_token.type == TOKEN_MINUS) op = OP_SUB;
-        else op = OP_OR;
+    while (cur_token.type == TOKEN_PLUS || cur_token.type == TOKEN_MINUS) {
+        BinaryOp op = (cur_token.type == TOKEN_PLUS) ? OP_ADD : OP_SUB;
         int line = cur_token.line;
         advance();
         ASTNode *right = parse_term();
@@ -644,14 +672,12 @@ static ASTNode *parse_simple_expression(void) {
 static ASTNode *parse_term(void) {
     ASTNode *left = parse_factor();
     while (cur_token.type == TOKEN_MULTIPLY || cur_token.type == TOKEN_DIVIDE ||
-           cur_token.type == TOKEN_DIV || cur_token.type == TOKEN_MOD ||
-           cur_token.type == TOKEN_AND) {
+           cur_token.type == TOKEN_DIV || cur_token.type == TOKEN_MOD) {
         BinaryOp op;
         if (cur_token.type == TOKEN_MULTIPLY) op = OP_MUL;
         else if (cur_token.type == TOKEN_DIVIDE) op = OP_DIV;
         else if (cur_token.type == TOKEN_DIV) op = OP_DIV_INT;
-        else if (cur_token.type == TOKEN_MOD) op = OP_MOD;
-        else op = OP_AND;
+        else op = OP_MOD;
         int line = cur_token.line;
         advance();
         ASTNode *right = parse_factor();
