@@ -353,6 +353,19 @@ static void codegen_for_stmt(CodeGenContext *ctx, ASTNode *node) {
     fprintf(ctx->output, "}\n");
 }
 
+/* 生成 while 语句 */
+static void codegen_while_stmt(CodeGenContext *ctx, ASTNode *node) {
+    codegen_indent(ctx);
+    fprintf(ctx->output, "while (");
+    codegen_expression(ctx, node->data.while_stmt.cond);
+    fprintf(ctx->output, ") {\n");
+    ctx->indent_level++;
+    codegen_statement(ctx, node->data.while_stmt.body);
+    ctx->indent_level--;
+    codegen_indent(ctx);
+    fprintf(ctx->output, "}\n");
+}
+
 /* 生成复合语句 */
 static void codegen_compound_stmt(CodeGenContext *ctx, ASTNode *node) {
     codegen_stmt_list(ctx, node->data.compound.stmt_list);
@@ -526,6 +539,10 @@ void codegen_statement(CodeGenContext *ctx, ASTNode *stmt) {
             
         case AST_FOR_STMT:
             codegen_for_stmt(ctx, stmt);
+            break;
+
+        case AST_WHILE_STMT:
+            codegen_while_stmt(ctx, stmt);
             break;
             
         case AST_COMPOUND_STMT:
