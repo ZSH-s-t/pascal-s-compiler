@@ -170,7 +170,7 @@ struct ASTNode {
             TokenType token_type;
             union {
                 int int_val;
-                double real_val;
+                long double real_val;
                 char char_val;
                 int bool_val;
             };
@@ -222,7 +222,7 @@ struct ASTNode {
 ASTNode *ast_new_node(ASTNodeType type, int line);
 ASTNode *ast_new_identifier(const char *name, int line);
 ASTNode *ast_new_const_int(int val, int line);
-ASTNode *ast_new_const_real(double val, int line);
+ASTNode *ast_new_const_real(long double val, int line);
 ASTNode *ast_new_const_char(char val, int line);
 ASTNode *ast_new_const_bool(int val, int line);
 ASTNode *ast_new_binary_expr(BinaryOp op, ASTNode *left, ASTNode *right, int line);

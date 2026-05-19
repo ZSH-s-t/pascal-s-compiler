@@ -130,7 +130,7 @@ ILLEGAL_CHAR    .
 
 {REAL}          {
                     UPDATE_COLUMN();
-                    yylval.real_val = atof(yytext);
+                    yylval.real_val = strtold(yytext, NULL);
                     return TOKEN_REAL_CONST;
                 }
 
@@ -308,7 +308,7 @@ void print_token(const Token *token) {
             printf("Value: %d", token->value.int_val);
             break;
         case TOKEN_REAL_CONST:
-            printf("Value: %f", token->value.real_val);
+            printf("Value: %Lf", token->value.real_val);
             break;
         case TOKEN_CHAR_CONST:
             printf("Value: '%c'", token->value.char_val);

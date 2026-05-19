@@ -261,7 +261,7 @@ void codegen_expression(CodeGenContext *ctx, ASTNode *expr) {
                     break;
                 case TOKEN_REAL_CONST:
                     /* long double 字面量后缀 L，提高与 FPC extended 标答的一致性 */
-                    fprintf(ctx->output, "%.21g", expr->data.const_val.real_val);
+                    fprintf(ctx->output, "%.21Lg", expr->data.const_val.real_val);
                     fprintf(ctx->output, "L");
                     break;
                 case TOKEN_CHAR_CONST:

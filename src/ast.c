@@ -33,7 +33,7 @@ ASTNode *ast_new_const_int(int val, int line) {
     return node;
 }
 
-ASTNode *ast_new_const_real(double val, int line) {
+ASTNode *ast_new_const_real(long double val, int line) {
     ASTNode *node = ast_new_node(AST_CONST_VAL, line);
     node->data.const_val.token_type = TOKEN_REAL_CONST;
     node->data.const_val.real_val = val;
@@ -280,7 +280,7 @@ void ast_print(ASTNode *node, int indent) {
         case AST_CONST_VAL:
             switch (node->data.const_val.token_type) {
                 case TOKEN_INTEGER_CONST: printf("%d", node->data.const_val.int_val); break;
-                case TOKEN_REAL_CONST: printf("%g", node->data.const_val.real_val); break;
+                case TOKEN_REAL_CONST: printf("%Lg", node->data.const_val.real_val); break;
                 case TOKEN_CHAR_CONST: printf("'%c'", node->data.const_val.char_val); break;
                 case TOKEN_TRUE: printf("true"); break;
                 case TOKEN_FALSE: printf("false"); break;

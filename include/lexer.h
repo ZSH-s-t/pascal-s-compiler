@@ -41,7 +41,7 @@
  */
 typedef union {
     int int_val;        /* 整数值 */
-    double real_val;    /* 实数值 */
+    long double real_val; /* 实数值（strtold，避免 atof 过早截成 double） */
     char char_val;      /* 字符值 */
     char str_val[256];  /* 字符串（标识符名或关键字名） */
     char string_val[1024]; /* 字符串常量值 */
@@ -181,7 +181,7 @@ int token_int_value(void);
  * @brief 获取当前Token的实数值
  * @return 实数值（如果不是实数Token，结果未定义）
  */
-double token_real_value(void);
+long double token_real_value(void);
 
 /**
  * @brief 获取当前Token的字符串值（标识符或字符串常量）

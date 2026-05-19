@@ -165,7 +165,7 @@ static ASTNode *parse_const_value(void) {
                 advance();
                 return ast_new_const_int(v, line);
             } else if (cur_token.type == TOKEN_REAL_CONST) {
-                double v = cur_token.value.real_val;
+                long double v = cur_token.value.real_val;
                 advance();
                 return ast_new_const_real(v, line);
             }
@@ -177,7 +177,7 @@ static ASTNode *parse_const_value(void) {
                 advance();
                 return ast_new_const_int(-v, line);
             } else if (cur_token.type == TOKEN_REAL_CONST) {
-                double v = cur_token.value.real_val;
+                long double v = cur_token.value.real_val;
                 advance();
                 return ast_new_const_real(-v, line);
             }
@@ -188,7 +188,7 @@ static ASTNode *parse_const_value(void) {
             return ast_new_const_int(v, line);
         }
         case TOKEN_REAL_CONST: {
-            double v = cur_token.value.real_val;
+            long double v = cur_token.value.real_val;
             advance();
             return ast_new_const_real(v, line);
         }
@@ -812,7 +812,7 @@ static ASTNode *parse_factor(void) {
             return ast_new_const_int(v, line);
         }
         case TOKEN_REAL_CONST: {
-            double v = cur_token.value.real_val;
+            long double v = cur_token.value.real_val;
             advance();
             return ast_new_const_real(v, line);
         }

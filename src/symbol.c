@@ -145,7 +145,7 @@ SymEntry* add_const_int(const char* name, int value, int line) {
 }
 
 /* 添加实型常量 */
-SymEntry* add_const_real(const char* name, double value, int line) {
+SymEntry* add_const_real(const char* name, long double value, int line) {
     if (check_redeclaration(name, line)) return NULL;
     
     SymEntry* entry = (SymEntry*)calloc(1, sizeof(SymEntry));
@@ -365,7 +365,7 @@ void print_complete_symtable(FILE* output) {
                         fprintf(output, "= %d", entry->u.const_value.int_val);
                         break;
                     case TYPE_REAL:
-                        fprintf(output, "= %f", entry->u.const_value.real_val);
+                        fprintf(output, "= %Lf", entry->u.const_value.real_val);
                         break;
                     case TYPE_CHAR:
                         fprintf(output, "= '%c'", entry->u.const_value.char_val);

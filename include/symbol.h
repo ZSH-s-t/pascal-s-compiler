@@ -54,7 +54,7 @@ typedef struct SymEntry {
     union {
         union {
             int int_val;
-            double real_val;
+            long double real_val;
             char char_val;
             int bool_val;
         } const_value;      // 修改为嵌套 union
@@ -94,7 +94,7 @@ int get_current_scope_level(void);
 
 /* 符号添加 */
 SymEntry* add_const_int(const char* name, int value, int line);
-SymEntry* add_const_real(const char* name, double value, int line);
+SymEntry* add_const_real(const char* name, long double value, int line);
 SymEntry* add_const_char(const char* name, char value, int line);
 SymEntry* add_const_bool(const char* name, int value, int line);
 SymEntry* add_var(const char* name, DataType type, int line);

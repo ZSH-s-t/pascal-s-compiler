@@ -514,7 +514,7 @@ static TokenType scan_number(void) {
     
     /* 返回对应的Token类型 */
     if (has_dot || has_exp) {
-        g_lexer_state.current_token.value.real_val = atof(buffer);
+        g_lexer_state.current_token.value.real_val = strtold(buffer, NULL);
         return TOKEN_REAL_CONST;
     } else {
         g_lexer_state.current_token.value.int_val = atoi(buffer);
@@ -746,7 +746,7 @@ int token_int_value(void) {
 /**
  * @brief 获取当前Token的实数值
  */
-double token_real_value(void) {
+long double token_real_value(void) {
     return g_lexer_state.current_token.value.real_val;
 }
 
@@ -833,7 +833,7 @@ void print_token_to(const Token *token, FILE *output) {
             fprintf(output, " Value: %d", token->value.int_val);
             break;
         case TOKEN_REAL_CONST:
-            fprintf(output, " Value: %f", token->value.real_val);
+            fprintf(output, " Value: %Lf", token->value.real_val);
             break;
         case TOKEN_CHAR_CONST:
             fprintf(output, " Value: '%c'", token->value.char_val);

@@ -646,7 +646,7 @@ static void process_const_decl(ASTNode* node) {
                     break;
                 }
                 case TOKEN_REAL_CONST: {// 实数常量
-                    double value = value_node->data.const_val.real_val;
+                    long double value = value_node->data.const_val.real_val;
                     add_const_real(node->data.const_decl.name, value, node->line);
                     debug_content("  Added real constant: %s = %f", 
                                   node->data.const_decl.name, value);
